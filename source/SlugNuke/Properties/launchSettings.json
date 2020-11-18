@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SlugNuke": {
+      "commandName": "Project",
+      "commandLineArgs": "Compile"
+    }
+  }
+}
