@@ -191,8 +191,16 @@ namespace SlugNuke
 
 			initProject.Namecsproj = Path.GetFileName(path);
 			initProject.Name = Path.GetFileName(Path.GetDirectoryName(path));
+			string lcprojName = initProject.Name.ToLower();
+
+			AbsolutePath newRootPath = ExpectedSolutionPath;
+			if ( lcprojName.StartsWith("test") || lcprojName.EndsWith("test") ) {
+				initProject.IsTestProject = true;
+				newRootPath = TestsDirectory;
+			}
+			
 			initProject.OriginalPath = (AbsolutePath) Path.GetDirectoryName(Path.Combine(CurrentSolutionPath, path));
-			initProject.NewPath = ExpectedSolutionPath / initProject.Name;
+			initProject.NewPath = newRootPath / initProject.Name;
 
 			return initProject;
 		}
