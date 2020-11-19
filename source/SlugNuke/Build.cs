@@ -138,7 +138,7 @@ class Build : NukeBuild
 		    OutputDirectory.GlobFiles("*.nupkg", "*symbols.nupkg").ForEach(DeleteFile);
 
 		    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
-			    if ( project.Deploy.ToLower() == "nuget" ) {
+			    if ( project.Deploy == CustomNukeConfigEnum.Nuget ) {
 				    DotNetPack(_ => _
 				                    .SetProject(Solution.GetProject(project.Name))
 				                    .SetOutputDirectory(OutputDirectory)

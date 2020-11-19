@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
+using NukeConf;
 using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
@@ -26,7 +28,7 @@ namespace SlugNuke
 		internal string DotNetPath { get; set; }
 
 
-		public List<InitProject> Projects = new List<InitProject>();
+		private List<InitProject> Projects = new List<InitProject>();
 
 
 		/// <summary>
@@ -49,6 +51,47 @@ namespace SlugNuke
 
 			// B.  Nuke File Exists
 			ControlFlow.Assert(NukeFileIsProper(solutionFile),"Unable to format Nuke file in proper format");
+
+			// C.  Ensure the NukeSolutionBuild file is setup.
+			await ValidateNukeSolutionBuild();
+			return true;
+		}
+
+
+
+		private async Task<bool> ValidateNukeSolutionBuild () {
+			AbsolutePath nsbFile = RootDirectory / "nukeSolutionBuild.conf";
+
+			CustomNukeSolutionConfig customNukeSolutionConfig;
+			if ( FileExists(nsbFile) ) {
+				using ( FileStream fs = File.OpenRead(nsbFile) ) { customNukeSolutionConfig = await JsonSerializer.DeserializeAsync<CustomNukeSolutionConfig>(fs,CustomNukeSolutionConfig.SerializerOptions()); }
+			}
+			else {
+				customNukeSolutionConfig = new CustomNukeSolutionConfig();
+			}
+
+
+			bool updates = false;
+			// Now go thru the projects and update the config
+			foreach (InitProject project in Projects) {
+				NukeConf.Project nukeConfProject = customNukeSolutionConfig.GetProjectByName(project.Name);
+				if ( nukeConfProject == null ) {
+					nukeConfProject = new NukeConf.Project() {Name = project.Name};
+					if ( project.IsTestProject )
+						nukeConfProject.Deploy = CustomNukeConfigEnum.None;
+					else
+						nukeConfProject.Deploy = CustomNukeConfigEnum.Copy;
+
+					updates = true;
+					customNukeSolutionConfig.Projects.Add(nukeConfProject);
+				}
+			}
+
+			if ( updates ) {
+				string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());
+				File.WriteAllText(nsbFile,json);
+			}
+			
 
 			return true;
 		}
@@ -80,7 +123,11 @@ namespace SlugNuke
 		}
 
 
-
+		/// <summary>
+		/// Ensure the Directory Structure is correct. Projects are in proper place.  
+		/// </summary>
+		/// <param name="solutionFile"></param>
+		/// <returns></returns>
 		private bool ProperDirectoryStructure (string solutionFile) {
 			// Create src folder if it does not exist.
 			if (!DirectoryExists(SourceDirectory)) { Directory.CreateDirectory(SourceDirectory.ToString()); }
@@ -120,6 +167,7 @@ namespace SlugNuke
 				if (outputRec.Text.EndsWith(".csproj"))
 				{
 					InitProject project = GetInitProject(outputRec.Text);
+					Projects.Add(project);
 
 					// Do we need to move the project?
 					if ( (project.OriginalPath.ToString() != project.NewPath.ToString()) || solutionNeedsToMove ) {
