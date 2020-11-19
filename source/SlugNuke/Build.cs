@@ -46,11 +46,39 @@ class Build : NukeBuild
     [GitRepository] readonly GitRepository GitRepository;
     [GitVersion(Framework = "netcoreapp3.1")] readonly GitVersion GitVersion;
 
-    AbsolutePath SourceDirectory => RootDirectory / "source";
-    AbsolutePath TestsDirectory => RootDirectory / "tests";
-    AbsolutePath OutputDirectory => RootDirectory / "output";
+    AbsolutePath SourceDirectory => RootDirectory / "Src";
+    AbsolutePath TestsDirectory => RootDirectory / "Tests";
+    AbsolutePath OutputDirectory => RootDirectory / "Artifacts";
 
     CustomNukeSolutionConfig CustomNukeSolutionConfig;
+
+    Target Init => _ => _.Executes(() => {
+        // Find the Solution - Assume we are in the root folder right now.
+        List<string> solutionFiles = SearchAccessibleFiles(RootDirectory.ToString(), ".sln");
+        ControlFlow.Assert(solutionFiles.Count != 0,"Unable to find the solution file");
+        ControlFlow.Assert(solutionFiles.Count == 1,"Found more than 1 solution file under the root directory -  - We can only work with 1 solution file." + RootDirectory.ToString());
+        string solutionFile = solutionFiles [0];
+        Logger.Normal("Solution File found:  {0}", solutionFile);
+
+
+        // Create src folder if it does not exist.
+        if ( !DirectoryExists(SourceDirectory) ) { Directory.CreateDirectory(SourceDirectory.ToString()); }
+
+        // Create Tests folder if it does not exist.
+        if (!DirectoryExists(TestsDirectory)) { Directory.CreateDirectory(TestsDirectory.ToString()); }
+
+        // Create Artifacts / Output folder if it does not exist.
+        if (!DirectoryExists(OutputDirectory)) { Directory.CreateDirectory(OutputDirectory.ToString()); }
+
+        // Query the solution for the projects that are in it.
+        // We allow all tests to run, instead of failing at first failure.
+        string dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
+        string solutionPath = Path.GetDirectoryName(solutionFile);
+        IProcess slnfind =  ProcessTasks.StartProcess(dotnetPath, "sln " + solutionPath + " list", logOutput: true);
+        slnfind.AssertWaitForExit();
+        IReadOnlyCollection<Output> output = slnfind.Output;
+
+    });
 
     Target Info => _ => _
 	    .Executes(() =>
@@ -59,7 +87,31 @@ class Build : NukeBuild
 		    Logger.Normal("Tests:  " + TestsDirectory.ToString());
 		    Logger.Normal();
 	    });
-    
+
+
+
+    List<string> SearchAccessibleFiles(string root, string searchTerm)
+    {
+	    var files = new List<string>();
+
+	    foreach (var file in Directory.EnumerateFiles(root).Where(m => m.Contains(searchTerm)))
+	    {
+		    files.Add(file);
+	    }
+	    foreach (var subDir in Directory.EnumerateDirectories(root))
+	    {
+		    try
+		    {
+			    files.AddRange(SearchAccessibleFiles(subDir, searchTerm));
+		    }
+		    catch (UnauthorizedAccessException ex)
+		    {
+			    // ...
+		    }
+	    }
+
+	    return files;
+    }
 
     // Loads the Solution specific configuration information for building.
     Target LoadSolutionConfig => _ => _
@@ -84,6 +136,7 @@ class Build : NukeBuild
             DotNetRestore(s => s
                 .SetProjectFile(Solution));
         });
+
 
     Target Compile => _ => _
         .DependsOn(Restore)

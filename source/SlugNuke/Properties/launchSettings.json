@@ -2,7 +2,7 @@
   "profiles": {
     "SlugNuke": {
       "commandName": "Project",
-      "commandLineArgs": "Compile"
+      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestControl --target Init"
     }
   }
 }
