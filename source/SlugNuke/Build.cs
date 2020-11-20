@@ -42,14 +42,15 @@ class Build : NukeBuild
 
     [Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")] 
     readonly Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
-    
+
+#pragma warning disable CS0649,IDE0044
     [Parameter] string NugetApiKey;
     [Parameter] string NugetRepoUrl;
-
-
     [Solution] readonly Solution Solution;
-    [GitRepository] readonly GitRepository GitRepository;
-    [GitVersion(Framework = "netcoreapp3.1")] readonly GitVersion GitVersion;
+#pragma warning restore CS0649
+
+
+#pragma warning disable IDE0051
 
     AbsolutePath SourceDirectory => RootDirectory / "Src";
     AbsolutePath TestsDirectory => RootDirectory / "Tests";
@@ -57,6 +58,34 @@ class Build : NukeBuild
 
     CustomNukeSolutionConfig CustomNukeSolutionConfig;
 
+    GitVersion _GitVersion;
+
+
+    Target PreProcessing => _ => _.Executes(() => {
+	    GitVersion _GitVersion = GitVersionTasks.GitVersion(s => s
+	                                                             .SetProcessWorkingDirectory(RootDirectory)
+	                                                             .SetFramework("netcoreapp3.1")
+	                                                             .SetNoFetch(false)
+	                                                             .DisableProcessLogOutput()
+	                                                             .SetUpdateAssemblyInfo(true))
+	                                            .Result;
+
+    });
+
+
+    Target Git => _ => _
+        .DependsOn(PreProcessing)
+	    .Executes(() => {
+
+        GitProcessor gitProcessor = new GitProcessor(RootDirectory, _GitVersion);
+        gitProcessor.GetCurrentBranch();
+        gitProcessor.IsUncommittedChanges();
+        gitProcessor.ProcessVersionsFile();
+    });
+
+    /// <summary>
+    /// Logic to initialize a project so it is prepared to be built by Nuke.  Re-arranges projects, creates necessary files, etc.
+    /// </summary>
     Target Init => _ => _
 	    .Executes(async () => { 
         InitLogic initializationLogic = new InitLogic()
@@ -116,13 +145,13 @@ class Build : NukeBuild
 	        Logger.Normal("Tests:  " + TestsDirectory.ToString());
 	        Logger.Normal("Configuration: " + Configuration.ToString());
             Logger.Normal("Solution = " + Solution.Name);
-            Logger.Normal("GitVer.Inform = " + GitVersion.InformationalVersion);
+            Logger.Normal("GitVer.Inform = " + _GitVersion.InformationalVersion);
             DotNetBuild(s => s
                              .SetProjectFile(Solution)
                 .SetConfiguration(Configuration)
-                .SetAssemblyVersion(GitVersion.AssemblySemVer)
-                .SetFileVersion(GitVersion.AssemblySemFileVer)
-                .SetInformationalVersion(GitVersion.InformationalVersion)
+                .SetAssemblyVersion(_GitVersion.AssemblySemVer)
+                .SetFileVersion(_GitVersion.AssemblySemFileVer)
+                .SetInformationalVersion(_GitVersion.InformationalVersion)
                 .SetVerbosity(DotNetVerbosity.Minimal)
                 .EnableNoRestore());
         });
@@ -142,10 +171,10 @@ class Build : NukeBuild
 				    DotNetPack(_ => _
 				                    .SetProject(Solution.GetProject(project.Name))
 				                    .SetOutputDirectory(OutputDirectory)
-				                    .SetAssemblyVersion(GitVersion.AssemblySemVer)
-				                    .SetFileVersion(GitVersion.AssemblySemFileVer)
-				                    .SetInformationalVersion(GitVersion.InformationalVersion)
-				                    .SetVersion(GitVersion.NuGetVersionV2));
+				                    .SetAssemblyVersion(_GitVersion.AssemblySemVer)
+				                    .SetFileVersion(_GitVersion.AssemblySemFileVer)
+				                    .SetInformationalVersion(_GitVersion.InformationalVersion)
+				                    .SetVersion(_GitVersion.NuGetVersionV2));
 
                 }
             }

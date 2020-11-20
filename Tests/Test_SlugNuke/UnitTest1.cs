@@ -7,8 +7,7 @@ namespace Test_SlugNuke
 {
 	public class Tests {
 		public string rootPath = @"C:\dev\projects\ProjA";
-		private string projectName = "Project.subname.name.csproj";
-
+		
 		[SetUp]
 		public void Setup()
 		{

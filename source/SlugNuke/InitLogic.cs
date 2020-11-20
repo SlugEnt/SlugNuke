@@ -28,7 +28,7 @@ namespace SlugNuke
 		internal string DotNetPath { get; set; }
 
 
-		private List<InitProject> Projects = new List<InitProject>();
+		private readonly List<InitProject> Projects = new List<InitProject>();
 
 
 		/// <summary>
@@ -59,6 +59,10 @@ namespace SlugNuke
 
 
 
+		/// <summary>
+		/// Ensures there is a valid NukeSolutionBuild.Conf file and updates it if necessary OR creates it.
+		/// </summary>
+		/// <returns></returns>
 		private async Task<bool> ValidateNukeSolutionBuild () {
 			AbsolutePath nsbFile = RootDirectory / "nukeSolutionBuild.conf";
 
@@ -231,14 +235,15 @@ namespace SlugNuke
 		/// </summary>
 		/// <param name="path">Path as returned from "dotnet sln" command</param>
 		/// <returns></returns>
-		public InitProject GetInitProject (string path)
-		{
-			InitProject initProject = new InitProject();
-			string parentPath = 
+		public InitProject GetInitProject (string path) {
+			InitProject initProject = new InitProject()
+			{
+				Namecsproj = Path.GetFileName(path),
+				Name = Path.GetFileName(Path.GetDirectoryName(path))
+			};
 			
 
-			initProject.Namecsproj = Path.GetFileName(path);
-			initProject.Name = Path.GetFileName(Path.GetDirectoryName(path));
+			
 			string lcprojName = initProject.Name.ToLower();
 
 			AbsolutePath newRootPath = ExpectedSolutionPath;
@@ -269,7 +274,7 @@ namespace SlugNuke
 				{
 					files.AddRange(SearchAccessibleFiles(subDir, searchTerm));
 				}
-				catch (UnauthorizedAccessException ex)
+				catch (UnauthorizedAccessException)
 				{
 					// ...
 				}
