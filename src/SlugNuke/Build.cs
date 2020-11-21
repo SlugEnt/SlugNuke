@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -70,8 +71,10 @@ class Build : NukeBuild
     /// <summary>     
     /// Called before most of the other Targets, to ensure various required items are setup
     /// </summary>
-    Target PreProcessing => _ => _.Executes(async() => {
-        // Setup the Git Object.  This specifically sets the working directory.
+    Target PreProcessing => _ => _
+        .Unlisted()
+	    .Executes(async() => { 
+	                                            // Setup the Git Object.  This specifically sets the working directory.
 	    _gitVersion = GitVersionTasks.GitVersion(s => s
 	                                                             .SetProcessWorkingDirectory(RootDirectory)
 	                                                             .SetFramework("netcoreapp3.1")
@@ -99,9 +102,11 @@ class Build : NukeBuild
     /// Re-arranges projects, creates necessary files, etc.
     /// </summary>
     Target Setup => _ => _
-	    .Executes(async () => { 
+        .Description("Called when first placing a solution under SlugNuke build control.  Also, call anytime you change a project's framework or add projects.")
+	    .Executes(async () => {
         InitLogic initializationLogic = new InitLogic()
 	    {
+
 		    RootDirectory = RootDirectory,
 		    SourceDirectory = SourceDirectory,
 		    TestsDirectory = TestsDirectory,
@@ -110,8 +115,7 @@ class Build : NukeBuild
 	    };
             
 	    await initializationLogic.Initialize();
-
-    });
+        });
 
 
 
@@ -119,6 +123,7 @@ class Build : NukeBuild
     /// Provides basic information about the project.
     /// </summary>
     Target Info => _ => _
+        .Description("Provides information about the current solution")
         .DependsOn(PreProcessing)
 	    .Executes(() =>
 	    {
@@ -212,6 +217,7 @@ class Build : NukeBuild
     /// Deploy to its final staging location.   If the version already existed we skip it.
     /// </summary>
     Target Publish => _ => _
+        .Description("Used for publishing a non-master branch.  The version of the app and in Git will be sometype of 'alpha' version, ie, 1.3.6-beta.5")
        .DependsOn(Pack)
        .Requires(() => NugetApiKey)
        .Requires(() => NugetRepoUrl)
@@ -256,7 +262,8 @@ class Build : NukeBuild
     /// Deploy to its final staging location.   If the version already existed we skip it.
     /// </summary>
     private Target PublishMaster => _ => _
-		.DependsOn(Pack)
+        .Description("Used when you want to move a non-master branch to master.  It will change version to a Major.Minor.Fix version")
+        .DependsOn(Pack)
        .Requires(() => NugetApiKey)
        .Requires(() => NugetRepoUrl)
        .Executes(() =>
@@ -298,6 +305,7 @@ class Build : NukeBuild
     /// Run the unit tests
     /// </summary>
 	Target Test => _ => _
+	        .Description("Runs all unit tests.")
             .DependsOn(Compile)
             .Executes(() =>
             {
@@ -371,7 +379,7 @@ class Build : NukeBuild
 	    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
 		    if ( project.Deploy == CustomNukeConfigEnum.Copy ) {
 			    // Destination
-			    AbsolutePath deploy = (AbsolutePath) CustomNukeSolutionConfig.DeployRoot / ("Ver" + _gitVersion.SemVer);
+			    AbsolutePath deploy = (AbsolutePath) CustomNukeSolutionConfig.DeployRoot / project.Name / ("Ver" + _gitVersion.SemVer);
 
 			    // Source
 			    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -59,6 +60,15 @@ namespace SlugNuke
 
 			// C.  Ensure the NukeSolutionBuild file is setup.
 			await ValidateNukeSolutionBuild();
+
+			// D.  Copy the GitVersion.Yml file
+			Assembly assembly = Assembly.GetExecutingAssembly();
+			string assemblyFile = assembly.Location;
+			string assemblyFolder = Path.GetDirectoryName(assemblyFile);
+			Logger.Info("Assembly Folder: " + assemblyFolder);
+			string src = Path.Combine(assemblyFolder, "GitVersion.yml");
+			string dest = RootDirectory / "GitVersion.yml";
+			File.Copy(src,dest,false);
 			return true;
 		}
 
