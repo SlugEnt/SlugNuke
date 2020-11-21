@@ -32,25 +32,11 @@ namespace NukeConf {
 
 		public static JsonSerializerOptions SerializerOptions () {
 			JsonSerializerOptions options = new JsonSerializerOptions();
-			options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+			options.Converters.Add(new JsonStringEnumConverter());
 			options.WriteIndented = true;
 			return options;
 		}
 
-
-		public string Serialize () {
-			JsonSerializerOptions options = new JsonSerializerOptions();
-			options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
-			options.WriteIndented = true;
-			return JsonSerializer.Serialize(this, options);
-		}
-
-
-		public static CustomNukeSolutionConfig Deserialize (string json) {
-			JsonSerializerOptions options = new JsonSerializerOptions();
-			options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
-			return JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, options);
-		}
 	}
 
 

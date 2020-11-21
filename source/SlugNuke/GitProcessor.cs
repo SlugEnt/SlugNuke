@@ -47,19 +47,23 @@ namespace SlugNuke
 		/// <returns></returns>
 		public string GetCurrentBranch () {
 			string cmdArgs = "branch --show-current";
-			if (!ExecuteGit(cmdArgs, out List<Output> output)) throw new ApplicationException("Git Command failed:  git " + cmdArgs);
+			if (!ExecuteGit(cmdArgs, out List<Output> output)) throw new ApplicationException("GetCurrentBranch::: Git Command failed:  git " + cmdArgs);
 			CurrentBranch = output.First().Text;
 			return CurrentBranch;
 		}
 
 
 
+		/// <summary>
+		/// Determines if there are any uncommitted changes on the current branch.
+		/// </summary>
+		/// <returns></returns>
 		public bool IsUncommittedChanges () {
 			string gitArgs = "update-index -q --refresh";
-			if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("Git Command failed:  git " + gitArgs);
+			if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("IsUncommittedChanges::: Git Command failed:  git " + gitArgs);
 
 			gitArgs = "diff-index --quiet HEAD --";
-			if (!ExecuteGit(gitArgs, out output)) throw new ApplicationException("There are uncommited changes on the current branch: " + CurrentBranch + "Git Command failed:  git " + gitArgs + "  Commit or discard existing changes and then try again.");
+			if (!ExecuteGit(gitArgs, out output)) throw new ApplicationException("There are uncommited changes on the current branch: " + CurrentBranch +  "  Commit or discard existing changes and then try again.");
 			return true;
 		}
 
@@ -75,10 +79,10 @@ namespace SlugNuke
 			string gitArgs = "add .";
 			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "commit -m " + COMMIT_MARKER + " " + tagDesc;
+			gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
 			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "tag -a " + tagName + " -m " + tagDesc;
+			gitArgs = string.Format("tag -a {0} -m \"{1}\"",tagName,tagDesc);
 			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
 			gitArgs = "push --set-upstream origin " + CurrentBranch;
@@ -178,7 +182,9 @@ namespace SlugNuke
 
 
 			// Get the last record, which is the latest Version
-			string latestFileVersion = versionList.Last();
+			string latestFileVersion = "0.0.0";
+			if (versionList.Count != 0)
+				latestFileVersion = versionList.Last();
 
 			
 			// Now use GitVersion to get latest version as GitVersion sees it.

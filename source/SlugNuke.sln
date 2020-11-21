@@ -6,11 +6,12 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{07F7845B-D29A-4A75-9148-39EE88E4987A}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
+		..\README.md = ..\README.md
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SlugNuke", "SlugNuke\SlugNuke.csproj", "{C006E047-BF52-4A35-9C65-D16FACF6D030}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test_SlugNuke", "..\Tests\Test_SlugNuke\Test_SlugNuke.csproj", "{E4517CCC-7446-4F2C-A5FB-B67EBA0A619D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Test_SlugNuke", "..\Tests\Test_SlugNuke\Test_SlugNuke.csproj", "{E4517CCC-7446-4F2C-A5FB-B67EBA0A619D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

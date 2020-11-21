@@ -13,6 +13,7 @@ using Nuke.Common.IO;
 using Nuke.Common.ProjectModel;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
+using Nuke.Common.Tools.EntityFramework;
 using Nuke.Common.Tools.GitVersion;
 using Nuke.Common.Utilities;
 using Nuke.Common.Utilities.Collections;
@@ -52,17 +53,22 @@ class Build : NukeBuild
 
 #pragma warning disable IDE0051
 
-    AbsolutePath SourceDirectory => RootDirectory / "Src";
-    AbsolutePath TestsDirectory => RootDirectory / "Tests";
-    AbsolutePath OutputDirectory => RootDirectory / "Artifacts";
+    AbsolutePath SourceDirectory => RootDirectory / "src";
+    AbsolutePath TestsDirectory => RootDirectory / "tests";
+    AbsolutePath OutputDirectory => RootDirectory / "artifacts";
 
     CustomNukeSolutionConfig CustomNukeSolutionConfig;
 
-    GitVersion _GitVersion;
+    GitVersion _gitVersion;
+    GitProcessor _gitProcessor;
+    
 
-
-    Target PreProcessing => _ => _.Executes(() => {
-	    GitVersion _GitVersion = GitVersionTasks.GitVersion(s => s
+    /// <summary>     
+    /// Called before most of the other Targets, to ensure various required items are setup
+    /// </summary>
+    Target PreProcessing => _ => _.Executes(async() => {
+        // Setup the Git Object.  This specifically sets the working directory.
+	    _gitVersion = GitVersionTasks.GitVersion(s => s
 	                                                             .SetProcessWorkingDirectory(RootDirectory)
 	                                                             .SetFramework("netcoreapp3.1")
 	                                                             .SetNoFetch(false)
@@ -70,6 +76,16 @@ class Build : NukeBuild
 	                                                             .SetUpdateAssemblyInfo(true))
 	                                            .Result;
 
+	    // Loads the Solution specific configuration information for building.
+        using (FileStream fs = File.OpenRead(RootDirectory / "NukeSolutionBuild.Conf")) { CustomNukeSolutionConfig = await JsonSerializer.DeserializeAsync<CustomNukeSolutionConfig>(fs,CustomNukeSolutionConfig.SerializerOptions()); }
+
+        // Setup the GitProcessor
+        _gitProcessor = new GitProcessor(RootDirectory, _gitVersion);
+
+
+        // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
+        _gitProcessor.GetCurrentBranch();
+        _gitProcessor.IsUncommittedChanges();
     });
 
 
@@ -77,16 +93,15 @@ class Build : NukeBuild
         .DependsOn(PreProcessing)
 	    .Executes(() => {
 
-        GitProcessor gitProcessor = new GitProcessor(RootDirectory, _GitVersion);
-        gitProcessor.GetCurrentBranch();
-        gitProcessor.IsUncommittedChanges();
-        gitProcessor.ProcessVersionsFile();
+        
+        //gitProcessor.ProcessVersionsFile();
     });
 
     /// <summary>
-    /// Logic to initialize a project so it is prepared to be built by Nuke.  Re-arranges projects, creates necessary files, etc.
+    /// Logic to initialize a project so it is prepared to be built by Nuke.  This only needs to be done once.
+    /// Re-arranges projects, creates necessary files, etc.
     /// </summary>
-    Target Init => _ => _
+    Target Setup => _ => _
 	    .Executes(async () => { 
         InitLogic initializationLogic = new InitLogic()
 	    {
@@ -101,7 +116,13 @@ class Build : NukeBuild
 
     });
 
+
+
+    /// <summary>
+    /// Provides basic information about the project.
+    /// </summary>
     Target Info => _ => _
+        .DependsOn(PreProcessing)
 	    .Executes(() =>
 	    {
 		    Logger.Normal("Source = " + SourceDirectory.ToString());
@@ -109,15 +130,6 @@ class Build : NukeBuild
 		    Logger.Normal();
 	    });
 
-
-
-
-    // Loads the Solution specific configuration information for building.
-    Target LoadSolutionConfig => _ => _
-	    .Executes(async() =>
-	    {
-		    using ( FileStream fs = File.OpenRead(RootDirectory / "NukeSolutionBuild.Conf") ) { CustomNukeSolutionConfig = await JsonSerializer.DeserializeAsync<CustomNukeSolutionConfig>(fs); }
-	    });
 
 
     Target Clean => _ => _
@@ -129,6 +141,7 @@ class Build : NukeBuild
             EnsureCleanDirectory(OutputDirectory);
         });
 
+
     Target Restore => _ => _
         .Executes(() =>
         {
@@ -139,93 +152,124 @@ class Build : NukeBuild
 
     Target Compile => _ => _
         .DependsOn(Restore)
+        .DependsOn(PreProcessing)
         .Executes(() =>
         {
 	        Logger.Normal("Source = " + SourceDirectory.ToString());
 	        Logger.Normal("Tests:  " + TestsDirectory.ToString());
 	        Logger.Normal("Configuration: " + Configuration.ToString());
             Logger.Normal("Solution = " + Solution.Name);
-            Logger.Normal("GitVer.Inform = " + _GitVersion.InformationalVersion);
+            Logger.Normal("GitVer.Inform = " + _gitVersion.InformationalVersion);
             DotNetBuild(s => s
                              .SetProjectFile(Solution)
                 .SetConfiguration(Configuration)
-                .SetAssemblyVersion(_GitVersion.AssemblySemVer)
-                .SetFileVersion(_GitVersion.AssemblySemFileVer)
-                .SetInformationalVersion(_GitVersion.InformationalVersion)
+                .SetAssemblyVersion(_gitVersion.AssemblySemVer)
+                .SetFileVersion(_gitVersion.AssemblySemFileVer)
+                .SetInformationalVersion(_gitVersion.InformationalVersion)
                 .SetVerbosity(DotNetVerbosity.Minimal)
                 .EnableNoRestore());
         });
 
 
-
+    /// <summary>
+    /// Prep for sending to a Nuget style repo
+    /// </summary>
     Target Pack => _ => _
-		.DependsOn(Compile)
-		.DependsOn(LoadSolutionConfig)
-		
+        .DependsOn(PreProcessing)
+        .DependsOn(Compile)
+		.DependsOn(Test)
+
 	    .Executes(() =>
 	    {
 		    OutputDirectory.GlobFiles("*.nupkg", "*symbols.nupkg").ForEach(DeleteFile);
 
-		    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
+
+            // Build the necessary packages 
+            foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
 			    if ( project.Deploy == CustomNukeConfigEnum.Nuget ) {
+				    string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
 				    DotNetPack(_ => _
-				                    .SetProject(Solution.GetProject(project.Name))
+				                    .SetProject(Solution.GetProject(fullName))
 				                    .SetOutputDirectory(OutputDirectory)
-				                    .SetAssemblyVersion(_GitVersion.AssemblySemVer)
-				                    .SetFileVersion(_GitVersion.AssemblySemFileVer)
-				                    .SetInformationalVersion(_GitVersion.InformationalVersion)
-				                    .SetVersion(_GitVersion.NuGetVersionV2));
+				                    .SetAssemblyVersion(_gitVersion.AssemblySemVer)
+				                    .SetFileVersion(_gitVersion.AssemblySemFileVer)
+				                    .SetInformationalVersion(_gitVersion.InformationalVersion)
+				                    .SetVersion(_gitVersion.NuGetVersionV2));
 
                 }
             }
 	    });
 
-    Target Publish => _ => _
+
+    /// <summary>
+    /// Deploy to its final staging location.   If the version already existed we skip it.
+    /// </summary>
+    Target PublishTest => _ => _
        .DependsOn(Pack)
        .Requires(() => NugetApiKey)
        .Requires(() => NugetRepoUrl)
        .Executes(() =>
        {
-	       GlobFiles(OutputDirectory, "*.nupkg")
-		       .NotEmpty()
-		       .Where(x => !x.EndsWith("symbols.nupkg"))
-		       .ForEach(x =>
-		       {
-			       DotNetNuGetPush(s => s
-			                            .SetTargetPath(x)
-			                            .SetSource(NugetRepoUrl)
-			                            .SetApiKey(NugetApiKey)
-			       );
-		       });
+		       GlobFiles(OutputDirectory, "*.nupkg")
+			       .NotEmpty()
+			       .Where(x => !x.EndsWith("symbols.nupkg"))
+			       .ForEach(x => {IReadOnlyCollection<Output> result =  DotNetNuGetPush(s => s
+			                                            .SetTargetPath(x)
+			                                            .SetSource(NugetRepoUrl)
+			                                            .SetApiKey(NugetApiKey)
+			                                            .SetSkipDuplicate(true)
+			                                            );
+				       if ( result.Count > 0 ) {
+                           // Look for skipped message.
+                           foreach ( Output outputLine in result ) {
+	                           if ( outputLine.Text.Contains("already exists at feed") ) {
+		                           string msg = @"A nuget package with this name and version already exists. " +
+		                                        "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
+		                                        "Will carry on as though this push was successfull.  " +
+												"Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
+                                   Logger.Warn(msg);
+	                           }
+                           }
+                       }
+			       });
+		       
+	       // Update the Versions file with the latest
+           string lastVersion = _gitProcessor.ProcessVersionsFile();
+           _gitProcessor.CommitSemVersionChanges();
+
+           Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
        });
 
 
-    Target Test => _ => _
-                        //.DependsOn(Compile)
-                        .Executes(() =>
-                        {
-	                        foreach ( Project project in Solution.AllProjects ) {
-		                        if ( project.Path.ToString().StartsWith(TestsDirectory) ) {
-			                        string projectTestDirectory = Path.GetDirectoryName(project.Path.ToString());
-			                        string dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
+    /// <summary>
+    /// Run the unit tests
+    /// </summary>
+	Target Test => _ => _
+            .DependsOn(Compile)
+            .Executes(() =>
+            {
+                foreach ( Project project in Solution.AllProjects ) {
+                    if ( project.Path.ToString().StartsWith(TestsDirectory) ) {
+                        string projectTestDirectory = Path.GetDirectoryName(project.Path.ToString());
+                        string dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
 
-			                        // We allow all tests to run, instead of failing at first failure.
-			                        IProcess dotnetTest = ProcessTasks.StartProcess(dotnetPath, "test " + projectTestDirectory, logOutput: true);
-			                        dotnetTest.AssertWaitForExit();
-			                        IReadOnlyCollection<Output> output = dotnetTest.Output;
+                        // We allow all tests to run, instead of failing at first failure.
+                        IProcess dotnetTest = ProcessTasks.StartProcess(dotnetPath, "test " + projectTestDirectory, logOutput: true);
+                        dotnetTest.AssertWaitForExit();
+                        IReadOnlyCollection<Output> output = dotnetTest.Output;
 
-                                    // Write the last line of output in green or red depending on outcome
-                                    string testResults = "";
-                                    if ( output.Count > 0 ) { testResults = output.Last().Text; }
+                        // Write the last line of output in green or red depending on outcome
+                        string testResults = "";
+                        if ( output.Count > 0 ) { testResults = output.Last().Text; }
 
-                                    if ( dotnetTest.ExitCode != 0 ) {
-	                                    Logger.Warn(testResults);
-	                                    ControlFlow.Assert(dotnetTest.ExitCode == 0, "Unit Tests Failed");
-                                    }
-                                    else 
-                                        Logger.Success(testResults);
+                        if ( dotnetTest.ExitCode != 0 ) {
+                            Logger.Warn(testResults);
+                            ControlFlow.Assert(dotnetTest.ExitCode == 0, "Unit Tests Failed");
+                        }
+                        else 
+                            Logger.Success(testResults);
 
-		                        }
-                            }
-                        });
+                    }
+                }
+            });
 }
