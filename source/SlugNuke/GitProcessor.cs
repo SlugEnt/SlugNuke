@@ -151,11 +151,20 @@ namespace SlugNuke
 
 				// Delete the Feature Branch
 				if ( CurrentBranch != "master" ) {
+					// See if branch exists on origin.  If not we expect an error below.
+					gitArgs = "ls-remote --exit-code --heads origin " + CurrentBranch;
+					bool bErrorIsExpected = false;
+					if ( !ExecuteGit_NoOutput(gitArgs) ) bErrorIsExpected = true;
+
 					gitArgs = "branch -d " + CurrentBranch;
-					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+					if ( !ExecuteGit_NoOutput(gitArgs) ) 
+							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
 					gitArgs = "push origin --delete " + CurrentBranch;
-					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+					if ( !ExecuteGit_NoOutput(gitArgs) ) 
+						if (!bErrorIsExpected)
+							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+					Logger.Success("The previous 2 commits will issue errors if the local branch was never pushed to origin.  They can be safely ignored.");
 				}
 			}
 			catch (Exception e)

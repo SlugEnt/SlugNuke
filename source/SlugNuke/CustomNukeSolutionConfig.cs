@@ -44,5 +44,7 @@ namespace NukeConf {
 		public string Name { get; set; }
 
 		public CustomNukeConfigEnum Deploy { get; set; }
+
+		public string Framework { get; set; }
 	}
 }

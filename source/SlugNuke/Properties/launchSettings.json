@@ -2,7 +2,7 @@
   "profiles": {
     "SlugNuke": {
       "commandName": "Project",
-      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestControl --target PublishMaster"
+      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestControl --target Temp"
     }
   }
 }

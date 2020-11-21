@@ -5,6 +5,8 @@ using System.Linq;
 using System.Net.Mime;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Nuke.Common;
 using Nuke.Common.CI;
 using Nuke.Common.Execution;
@@ -61,7 +63,9 @@ class Build : NukeBuild
 
     GitVersion _gitVersion;
     GitProcessor _gitProcessor;
-    
+
+    bool IsMasterBuild = false;
+
 
     /// <summary>     
     /// Called before most of the other Targets, to ensure various required items are setup
@@ -89,13 +93,6 @@ class Build : NukeBuild
     });
 
 
-    Target Git => _ => _
-        .DependsOn(PreProcessing)
-	    .Executes(() => {
-
-        
-        //gitProcessor.ProcessVersionsFile();
-    });
 
     /// <summary>
     /// Logic to initialize a project so it is prepared to be built by Nuke.  This only needs to be done once.
@@ -171,6 +168,7 @@ class Build : NukeBuild
         });
 
 
+
     /// <summary>
     /// Prep for sending to a Nuget style repo
     /// </summary>
@@ -181,6 +179,14 @@ class Build : NukeBuild
 
 	    .Executes(() =>
 	    {
+            // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
+            // This ensure we do not build the package with -alpha suffix.
+            // For non master build (Publish) we will carry out this step AFTER the Packing.
+		    if ( IsMasterBuild ) {
+                _gitProcessor.CommitMasterVersionChanges();
+		    }
+
+
 		    OutputDirectory.GlobFiles("*.nupkg", "*symbols.nupkg").ForEach(DeleteFile);
 
 
@@ -197,6 +203,7 @@ class Build : NukeBuild
 				                    .SetVersion(_gitVersion.NuGetVersionV2));
 
                 }
+
             }
 	    });
 
@@ -242,20 +249,18 @@ class Build : NukeBuild
 		       Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
        });
 
-	    
 
+    
 
     /// <summary>
     /// Deploy to its final staging location.   If the version already existed we skip it.
     /// </summary>
-    Target PublishMaster => _ => _
-       .DependsOn(Pack)
+    private Target PublishMaster => _ => _
+		.DependsOn(Pack)
        .Requires(() => NugetApiKey)
        .Requires(() => NugetRepoUrl)
        .Executes(() =>
        {
-           // Need to check out master branch
-           _gitProcessor.CommitMasterVersionChanges();
 
            GlobFiles(OutputDirectory, "*.nupkg")
                .NotEmpty()
@@ -320,4 +325,62 @@ class Build : NukeBuild
                     }
                 }
             });
+
+
+    Target Temp => _ => _ 
+                        .DependsOn(PreProcessing)
+	    .Executes(() => {
+	    PublishCopiedFolders();
+    });
+
+
+    /// <summary>
+    /// We need to see if this is a publishmaster target.  If so, set the flag.
+    /// </summary>
+    protected override void OnBuildInitialized()
+    {
+	    base.OnBuildInitialized();
+	    if (InvokedTargets.Contains(PublishMaster)) IsMasterBuild = true;
+    }
+
+
+
+    /// <summary>
+    /// Copies an entire directory, files and subdirs to a destination location.
+    /// </summary>
+    /// <param name="sourcePath"></param>
+    /// <param name="DestPath"></param>
+    public static void CopyEntireDirectory(string sourcePath, string DestPath)
+    {
+	    Parallel.ForEach(Directory.GetFileSystemEntries(sourcePath, "*", SearchOption.AllDirectories)
+	                     , (fileName) =>
+	                     {
+		                     string output = Regex.Replace(fileName, "^" + Regex.Escape(sourcePath), DestPath);
+		                     if (File.Exists(fileName))
+		                     {
+			                     Directory.CreateDirectory(Path.GetDirectoryName(output));
+			                     File.Copy(fileName, output, true);
+		                     }
+		                     else
+			                     Directory.CreateDirectory(output);
+	                     });
+    }
+
+    
+    public bool PublishCopiedFolders () {
+	    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
+		    if ( project.Deploy == CustomNukeConfigEnum.Copy ) {
+			    // Destination
+			    AbsolutePath deploy = (AbsolutePath) CustomNukeSolutionConfig.DeployRoot / ("Ver" + _gitVersion.SemVer);
+
+			    // Source
+			    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
+
+			    CopyEntireDirectory(src, deploy);
+		    }
+
+	    }
+	    return true;
+    }
+
 }

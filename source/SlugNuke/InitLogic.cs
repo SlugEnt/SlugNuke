@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Xml.Linq;
+using Microsoft.Build.Tasks;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -13,6 +15,9 @@ using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 using Project = Nuke.Common.ProjectModel.Project;
+using System.Xml.Linq;
+using System.Xml.XPath;
+
 
 namespace SlugNuke
 {
@@ -81,6 +86,7 @@ namespace SlugNuke
 				NukeConf.Project nukeConfProject = customNukeSolutionConfig.GetProjectByName(project.Name);
 				if ( nukeConfProject == null ) {
 					nukeConfProject = new NukeConf.Project() {Name = project.Name};
+					nukeConfProject.Framework = project.Framework;
 					if ( project.IsTestProject )
 						nukeConfProject.Deploy = CustomNukeConfigEnum.None;
 					else
@@ -89,6 +95,14 @@ namespace SlugNuke
 					updates = true;
 					customNukeSolutionConfig.Projects.Add(nukeConfProject);
 				}
+				else {
+					// Check for updated values:
+					if ( nukeConfProject.Framework != project.Framework ) {
+						nukeConfProject.Framework = project.Framework;
+						updates = true;
+					}
+				}
+				
 			}
 
 			if ( updates ) {
@@ -189,7 +203,7 @@ namespace SlugNuke
 			}
 
 
-			// Step 5.  Readd project to solution
+			// Step 5.  Read project to solution
 			if ( movedProjects.Count > 0 ) {
 				foreach ( InitProject project in movedProjects ) { MoveProjectStepB(project); }
 			}
@@ -242,7 +256,6 @@ namespace SlugNuke
 				Name = Path.GetFileName(Path.GetDirectoryName(path))
 			};
 			
-
 			
 			string lcprojName = initProject.Name.ToLower();
 
@@ -255,7 +268,27 @@ namespace SlugNuke
 			initProject.OriginalPath = (AbsolutePath) Path.GetDirectoryName(Path.Combine(CurrentSolutionPath, path));
 			initProject.NewPath = newRootPath / initProject.Name;
 
+
+			// Determine Framework type.
+			DetermineFramework(initProject);
 			return initProject;
+		}
+
+
+
+		/// <summary>
+		/// Determines the Project's targeted framework.
+		/// </summary>
+		/// <param name="project"></param>
+	private void DetermineFramework (InitProject project) {
+			// Determine csproj path
+			AbsolutePath csprojPath = project.OriginalPath / project.Namecsproj;
+
+
+			XDocument doc = XDocument.Load(csprojPath);
+			string value = doc.XPathSelectElement("//PropertyGroup/TargetFramework").Value;
+			ControlFlow.Assert(value != string.Empty,"Unable to locate a FrameWork value from the csproj file.  This is a required property. Project: " + project.Namecsproj);
+			project.Framework = value;
 		}
 
 
