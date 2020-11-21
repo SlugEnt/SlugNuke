@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -8,6 +9,8 @@ using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.GitVersion;
+using Console = Colorful.Console;
+
 
 namespace SlugNuke
 {
@@ -19,6 +22,7 @@ namespace SlugNuke
 		const int VERSION_HISTORY_TO_KEEP = 4;
 		const int VERSION_HISTORY_LIMIT = 7;
 		const string COMMIT_MARKER = "|^|";
+		const string GIT_COMMAND_MARKER = "|";
 
 		internal string DotNetPath { get; set; }
 		internal AbsolutePath RootDirectory;
@@ -31,6 +35,12 @@ namespace SlugNuke
 
 		public string Version { get; set; }
 		public string SemVersion { get; set; }
+
+
+		/// <summary>
+		/// Keeps track of all of the Git Command output for debugging purposes.
+		/// </summary>
+		public List<Output> GitCommandOutputHistory = new List<Output>();
 
 
 		public GitProcessor (AbsolutePath rootPath, GitVersion gitVersion) {
@@ -73,66 +83,86 @@ namespace SlugNuke
 		/// Used to push the app into a Development commit, which means it is tagged with a SemVer tag, such as 2.5.6-alpha1001
 		/// </summary>
 		public void CommitSemVersionChanges () {
-			string tagName = "Ver" + SemVersion;
-			string tagDesc = "Deployed Version:  " + CurrentBranch + "  |  " + SemVersion;
+			try {
+				string tagName = "Ver" + SemVersion;
+				string tagDesc = "Deployed Version:  " + CurrentBranch + "  |  " + SemVersion;
 
-			string gitArgs = "add .";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				string gitArgs = "add .";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-			gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = string.Format("tag -a {0} -m \"{1}\"",tagName,tagDesc);
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = string.Format("tag -a {0} -m \"{1}\"", tagName, tagDesc);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "push --set-upstream origin " + CurrentBranch;
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = "push --set-upstream origin " + CurrentBranch;
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "push --tags origin";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = "push --tags origin";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+			}
+			catch ( Exception e ) {
+				PrintGitHistory();
+				throw e;
+			}
 		}
 
 
 
 
 		/// <summary>
-		/// Used to push the app into a Development commit, which means it is tagged with a SemVer tag, such as 2.5.6-alpha1001
+		/// Performs the transition from a Development branch to a Master branch
 		/// </summary>
 		public void CommitMasterVersionChanges()
 		{
-			string tagName = "Ver" + Version;
-			string tagDesc = "Deployed Version:  " + CurrentBranch + "  |  " + Version;
+			string gitArgs;
 
+			try {
+				// First we need to checkout master and merge it.
+				if ( CurrentBranch != "master" ) {
+					gitArgs = "checkout master";
+					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-			// First we need to checkout master and merge it.
-			string gitArgs = "checkout master";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
+					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}\"", CurrentBranch);
+					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				}
 
-			gitArgs = "merge " + CurrentBranch + " --no-ff --no-edit -m " + "Merging Branch: " + CurrentBranch;
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				// Update the versions file with latest info
+				ProcessVersionsFile();
 
-			gitArgs = "add .";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				string tagName = "Ver" + Version;
+				string tagDesc = "Deployed Version:  " + CurrentBranch + "  |  " + Version;
 
-			gitArgs = "commit -m " + COMMIT_MARKER + " " + tagDesc;
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = "add .";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "tag -a " + tagName + " -m " + tagDesc;
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "push origin ";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = string.Format("tag -a {0} -m \"{1}\"", tagName, tagDesc);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "push --tags origin";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = "push origin ";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			// Delete the Feature Branch
-			gitArgs = "branch -d " + CurrentBranch;
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				gitArgs = "push --tags origin";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-			gitArgs = "push origin --delete " + CurrentBranch;
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				// Delete the Feature Branch
+				if ( CurrentBranch != "master" ) {
+					gitArgs = "branch -d " + CurrentBranch;
+					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
+					gitArgs = "push origin --delete " + CurrentBranch;
+					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				}
+			}
+			catch (Exception e)
+			{
+				PrintGitHistory();
+				throw e;
+			}
 		}
 
 		/// <summary>
@@ -142,8 +172,18 @@ namespace SlugNuke
 		/// <returns></returns>
 		private bool ExecuteGit_NoOutput (string cmdArguments) {
 			string command = "git";
-			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: false);
+
+			// Log it
+			Output output =new Output();
+			output.Text = GIT_COMMAND_MARKER +  command + " " + cmdArguments;
+			GitCommandOutputHistory.Add(output);
+
+			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: true);
 			process.AssertWaitForExit();
+
+			// Copy output to history.
+			GitCommandOutputHistory.AddRange(process.Output);
+
 			if (process.ExitCode != 0) return false;
 			return true;
 		}
@@ -157,9 +197,20 @@ namespace SlugNuke
 		/// <returns></returns>
 		private bool ExecuteGit (string cmdArguments, out List<Output> output) {
 			string command = "git";
+
+
+			// Log it
+			Output outputCmd = new Output();
+			outputCmd.Text = GIT_COMMAND_MARKER + command + " " + cmdArguments;
+			GitCommandOutputHistory.Add(outputCmd);
+
 			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: true);
 			process.AssertWaitForExit();
 			output = process.Output.ToList();
+
+			// Copy output to history.
+			GitCommandOutputHistory.AddRange(process.Output);
+
 			if ( process.ExitCode != 0 ) return false;
 			return true;
 		}
@@ -203,6 +254,24 @@ namespace SlugNuke
 			SemVersion = gvLatestSemVer;
 
 			return versionList.Last();
+		}
+
+
+		/// <summary>
+		/// Prints the history of the Git commands to the console.
+		/// </summary>
+		private void PrintGitHistory () {
+			
+			Console.WriteLine("");
+			Console.WriteLine("Git Command Execution History is below for debugging purposes",Color.DeepSkyBlue);
+			foreach ( Output line in GitCommandOutputHistory ) {
+				if ( line.Text.StartsWith(GIT_COMMAND_MARKER) ) 
+					Console.WriteLine("  " + line.Text.Substring(1), Color.Orange);
+				else 
+					Console.WriteLine("     "  + line.Text,Color.DarkKhaki);
+				
+			}
+
 		}
 	}
 }

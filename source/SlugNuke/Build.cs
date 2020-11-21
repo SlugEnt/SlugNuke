@@ -204,7 +204,7 @@ class Build : NukeBuild
     /// <summary>
     /// Deploy to its final staging location.   If the version already existed we skip it.
     /// </summary>
-    Target PublishTest => _ => _
+    Target Publish => _ => _
        .DependsOn(Pack)
        .Requires(() => NugetApiKey)
        .Requires(() => NugetRepoUrl)
@@ -232,13 +232,61 @@ class Build : NukeBuild
                            }
                        }
 			       });
-		       
-	       // Update the Versions file with the latest
-           string lastVersion = _gitProcessor.ProcessVersionsFile();
-           _gitProcessor.CommitSemVersionChanges();
 
-           Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
+	       
+		       // Update the Versions file with the latest
+		       string lastVersion = _gitProcessor.ProcessVersionsFile();
+		       _gitProcessor.CommitSemVersionChanges();
+	       
+
+		       Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
        });
+
+	    
+
+
+    /// <summary>
+    /// Deploy to its final staging location.   If the version already existed we skip it.
+    /// </summary>
+    Target PublishMaster => _ => _
+       .DependsOn(Pack)
+       .Requires(() => NugetApiKey)
+       .Requires(() => NugetRepoUrl)
+       .Executes(() =>
+       {
+           // Need to check out master branch
+           _gitProcessor.CommitMasterVersionChanges();
+
+           GlobFiles(OutputDirectory, "*.nupkg")
+               .NotEmpty()
+               .Where(x => !x.EndsWith("symbols.nupkg"))
+               .ForEach(x => {
+                   IReadOnlyCollection<Output> result = DotNetNuGetPush(s => s
+                                            .SetTargetPath(x)
+                                            .SetSource(NugetRepoUrl)
+                                            .SetApiKey(NugetApiKey)
+                                            .SetSkipDuplicate(true)
+                                             );
+                   if (result.Count > 0)
+                   {
+                           // Look for skipped message.
+                           foreach (Output outputLine in result)
+                       {
+                           if (outputLine.Text.Contains("already exists at feed"))
+                           {
+                               string msg = @"A nuget package with this name and version already exists. " +
+                                            "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
+                                            "Will carry on as though this push was successfull.  " +
+                                            "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
+                               Logger.Warn(msg);
+                           }
+                       }
+                   }
+               });
+
+           Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
+       });
+
 
 
     /// <summary>
