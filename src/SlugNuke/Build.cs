@@ -35,21 +35,25 @@ using Project = Nuke.Common.ProjectModel.Project;
 [ShutdownDotNetAfterServerBuild]
 class Build : NukeBuild
 {
-    /// Support plugins are available for:
-    ///   - JetBrains ReSharper        https://nuke.build/resharper
-    ///   - JetBrains Rider            https://nuke.build/rider
-    ///   - Microsoft VisualStudio     https://nuke.build/visualstudio
-    ///   - Microsoft VSCode           https://nuke.build/vscode
+	/// Support plugins are available for:
+	///   - JetBrains ReSharper        https://nuke.build/resharper
+	///   - JetBrains Rider            https://nuke.build/rider
+	///   - Microsoft VisualStudio     https://nuke.build/visualstudio
+	///   - Microsoft VSCode           https://nuke.build/vscode
 
-    public static int Main () => Execute<Build>(x => x.Compile);
+	public static int Main () {
+
+        return Execute<Build>(x => x.Compile);
+	}
 
 
     [Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")] 
     readonly Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
 
 #pragma warning disable CS0649,IDE0044
-    [Parameter] string NugetApiKey;
-    [Parameter] string NugetRepoUrl;
+    [Parameter("Nuget API Key used to deploy to Nuget compatible Repo.")] string NugetApiKey;
+    [Parameter("URL of the Nuget compatible Repository that packages should be pushed to.")] string NugetRepoUrl;
+    [Parameter("When Publishing, it skips the deployment of any project with a deploy method of Nuget")] bool SkipNuget;
     [Solution] readonly Solution Solution;
 #pragma warning restore CS0649
 
@@ -62,10 +66,9 @@ class Build : NukeBuild
 
     CustomNukeSolutionConfig CustomNukeSolutionConfig;
 
-    GitVersion _gitVersion;
     GitProcessor _gitProcessor;
 
-    bool IsMasterBuild = false;
+    bool IsProductionBuild = false;
 
 
     /// <summary>     
@@ -73,22 +76,20 @@ class Build : NukeBuild
     /// </summary>
     Target PreProcessing => _ => _
         .Unlisted()
-	    .Executes(async() => { 
-	                                            // Setup the Git Object.  This specifically sets the working directory.
-	    _gitVersion = GitVersionTasks.GitVersion(s => s
-	                                                             .SetProcessWorkingDirectory(RootDirectory)
-	                                                             .SetFramework("netcoreapp3.1")
-	                                                             .SetNoFetch(false)
-	                                                             .DisableProcessLogOutput()
-	                                                             .SetUpdateAssemblyInfo(true))
-	                                            .Result;
+	    .Executes(async() => {
 
+	    Utility.ValidateGetVersionEnvVariable();
+
+
+        
 	    // Loads the Solution specific configuration information for building.
         using (FileStream fs = File.OpenRead(RootDirectory / "NukeSolutionBuild.Conf")) { CustomNukeSolutionConfig = await JsonSerializer.DeserializeAsync<CustomNukeSolutionConfig>(fs,CustomNukeSolutionConfig.SerializerOptions()); }
 
         // Setup the GitProcessor
-        _gitProcessor = new GitProcessor(RootDirectory, _gitVersion);
+        _gitProcessor = new GitProcessor(RootDirectory);
 
+
+        if (_gitProcessor.GitVersion == null) Logger.Error("GitVersion not Loaded");
 
         // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
         _gitProcessor.GetCurrentBranch();
@@ -124,12 +125,21 @@ class Build : NukeBuild
     /// </summary>
     Target Info => _ => _
         .Description("Provides information about the current solution")
-        .DependsOn(PreProcessing)
+        //.DependsOn(PreProcessing)
 	    .Executes(() =>
 	    {
-		    Logger.Normal("Source = " + SourceDirectory.ToString());
-		    Logger.Normal("Tests:  " + TestsDirectory.ToString());
-		    Logger.Normal();
+		    Logger.Normal("Root =         " + RootDirectory.ToString());
+            Logger.Normal("Source =       " + SourceDirectory.ToString());
+		    Logger.Normal("Tests:         " + TestsDirectory.ToString());
+            Logger.Normal("Output:        " + OutputDirectory);
+            Logger.Normal("Solution:      " + Solution.Path);
+
+            Logger.Normal("Build Assemnbly Dir:       " + BuildAssemblyDirectory);
+            Logger.Normal("Build Project Dir:         " + BuildProjectDirectory);
+            Logger.Normal("NugetPackageConfigFile:    " + ToolPathResolver.NuGetPackagesConfigFile);
+            Logger.Normal("Executing Assembly Dir:    " + ToolPathResolver.ExecutingAssemblyDirectory);
+            Logger.Normal("Nuget Assets Config File:  " + ToolPathResolver.NuGetAssetsConfigFile);
+            Logger.Normal();
 	    });
 
 
@@ -157,17 +167,33 @@ class Build : NukeBuild
         .DependsOn(PreProcessing)
         .Executes(() =>
         {
-	        Logger.Normal("Source = " + SourceDirectory.ToString());
+	        // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
+	        // This ensure we do not build the package with -alpha suffix.
+	        // For non master build (Publish) we will carry out this step AFTER the Packing.
+	        if (IsProductionBuild)
+	        {
+		        _gitProcessor.CommitMasterVersionChanges();
+                _gitProcessor.Fetch_GitVersion();
+	        }
+
+            Logger.Normal("Source = " + SourceDirectory.ToString());
 	        Logger.Normal("Tests:  " + TestsDirectory.ToString());
 	        Logger.Normal("Configuration: " + Configuration.ToString());
             Logger.Normal("Solution = " + Solution.Name);
-            Logger.Normal("GitVer.Inform = " + _gitVersion.InformationalVersion);
+            Logger.Normal("GitVer.Inform = " + _gitProcessor.GitVersion.InformationalVersion);
+
+            string assemblyVer = _gitProcessor.GitVersion.AssemblySemVer;
+            string fileVer = _gitProcessor.GitVersion.AssemblySemFileVer;
+            string infoVer = _gitProcessor.GitVersion.InformationalVersion;
+
+            //if ( IsProductionBuild ) { assemblyVer = fileVer = infoVer = _gitProcessor.GitVersion.MajorMinorPatch; }
+
             DotNetBuild(s => s
                              .SetProjectFile(Solution)
                 .SetConfiguration(Configuration)
-                .SetAssemblyVersion(_gitVersion.AssemblySemVer)
-                .SetFileVersion(_gitVersion.AssemblySemFileVer)
-                .SetInformationalVersion(_gitVersion.InformationalVersion)
+                .SetAssemblyVersion(assemblyVer)
+                .SetFileVersion(fileVer)
+                .SetInformationalVersion(infoVer)
                 .SetVerbosity(DotNetVerbosity.Minimal)
                 .EnableNoRestore());
         });
@@ -184,14 +210,6 @@ class Build : NukeBuild
 
 	    .Executes(() =>
 	    {
-            // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
-            // This ensure we do not build the package with -alpha suffix.
-            // For non master build (Publish) we will carry out this step AFTER the Packing.
-		    if ( IsMasterBuild ) {
-                _gitProcessor.CommitMasterVersionChanges();
-		    }
-
-
 		    OutputDirectory.GlobFiles("*.nupkg", "*symbols.nupkg").ForEach(DeleteFile);
 
 
@@ -202,10 +220,10 @@ class Build : NukeBuild
 				    DotNetPack(_ => _
 				                    .SetProject(Solution.GetProject(fullName))
 				                    .SetOutputDirectory(OutputDirectory)
-				                    .SetAssemblyVersion(_gitVersion.AssemblySemVer)
-				                    .SetFileVersion(_gitVersion.AssemblySemFileVer)
-				                    .SetInformationalVersion(_gitVersion.InformationalVersion)
-				                    .SetVersion(_gitVersion.NuGetVersionV2));
+				                    .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
+				                    .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
+				                    .SetInformationalVersion(_gitProcessor.GitVersion.InformationalVersion)
+				                    .SetVersion(_gitProcessor.GitVersion.NuGetVersionV2));
 
                 }
 
@@ -223,31 +241,29 @@ class Build : NukeBuild
        .Requires(() => NugetRepoUrl)
        .Executes(() =>
        {
+	       if ( !SkipNuget ) {
 		       GlobFiles(OutputDirectory, "*.nupkg")
 			       .NotEmpty()
 			       .Where(x => !x.EndsWith("symbols.nupkg"))
-			       .ForEach(x => {IReadOnlyCollection<Output> result =  DotNetNuGetPush(s => s
-			                                            .SetTargetPath(x)
-			                                            .SetSource(NugetRepoUrl)
-			                                            .SetApiKey(NugetApiKey)
-			                                            .SetSkipDuplicate(true)
-			                                            );
+			       .ForEach(x => {
+				       IReadOnlyCollection<Output> result =
+					       DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
 				       if ( result.Count > 0 ) {
-                           // Look for skipped message.
-                           foreach ( Output outputLine in result ) {
-	                           if ( outputLine.Text.Contains("already exists at feed") ) {
-		                           string msg = @"A nuget package with this name and version already exists. " +
-		                                        "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
-		                                        "Will carry on as though this push was successfull.  " +
-												"Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
-                                   Logger.Warn(msg);
-	                           }
-                           }
-                       }
+					       // Look for skipped message.
+					       foreach ( Output outputLine in result ) {
+						       if ( outputLine.Text.Contains("already exists at feed") ) {
+							       string msg = @"A nuget package with this name and version already exists. " +
+							                    "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
+							                    "Will carry on as though this push was successfull.  " +
+							                    "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
+							       Logger.Warn(msg);
+						       }
+					       }
+				       }
 			       });
+	       }
 
-	       
-		       // Update the Versions file with the latest
+	       // Update the Versions file with the latest
 		       string lastVersion = _gitProcessor.ProcessVersionsFile();
 		       _gitProcessor.CommitSemVersionChanges();
 	       
@@ -261,42 +277,36 @@ class Build : NukeBuild
     /// <summary>
     /// Deploy to its final staging location.   If the version already existed we skip it.
     /// </summary>
-    private Target PublishMaster => _ => _
+    private Target PublishProd => _ => _
         .Description("Used when you want to move a non-master branch to master.  It will change version to a Major.Minor.Fix version")
         .DependsOn(Pack)
        .Requires(() => NugetApiKey)
        .Requires(() => NugetRepoUrl)
        .Executes(() =>
        {
+	       if ( !SkipNuget ) {
+		       GlobFiles(OutputDirectory, "*.nupkg")
+			       .NotEmpty()
+			       .Where(x => !x.EndsWith("symbols.nupkg"))
+			       .ForEach(x => {
+				       IReadOnlyCollection<Output> result =
+					       DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
+				       if ( result.Count > 0 ) {
+					       // Look for skipped message.
+					       foreach ( Output outputLine in result ) {
+						       if ( outputLine.Text.Contains("already exists at feed") ) {
+							       string msg = @"A nuget package with this name and version already exists. " +
+							                    "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
+							                    "Will carry on as though this push was successfull.  " +
+							                    "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
+							       Logger.Warn(msg);
+						       }
+					       }
+				       }
+			       });
+	       }
 
-           GlobFiles(OutputDirectory, "*.nupkg")
-               .NotEmpty()
-               .Where(x => !x.EndsWith("symbols.nupkg"))
-               .ForEach(x => {
-                   IReadOnlyCollection<Output> result = DotNetNuGetPush(s => s
-                                            .SetTargetPath(x)
-                                            .SetSource(NugetRepoUrl)
-                                            .SetApiKey(NugetApiKey)
-                                            .SetSkipDuplicate(true)
-                                             );
-                   if (result.Count > 0)
-                   {
-                           // Look for skipped message.
-                           foreach (Output outputLine in result)
-                       {
-                           if (outputLine.Text.Contains("already exists at feed"))
-                           {
-                               string msg = @"A nuget package with this name and version already exists. " +
-                                            "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
-                                            "Will carry on as though this push was successfull.  " +
-                                            "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
-                               Logger.Warn(msg);
-                           }
-                       }
-                   }
-               });
-
-           Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
+	       Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
        });
 
 
@@ -348,7 +358,7 @@ class Build : NukeBuild
     protected override void OnBuildInitialized()
     {
 	    base.OnBuildInitialized();
-	    if (InvokedTargets.Contains(PublishMaster)) IsMasterBuild = true;
+	    if (InvokedTargets.Contains(PublishProd)) IsProductionBuild = true;
     }
 
 
@@ -379,7 +389,7 @@ class Build : NukeBuild
 	    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
 		    if ( project.Deploy == CustomNukeConfigEnum.Copy ) {
 			    // Destination
-			    AbsolutePath deploy = (AbsolutePath) CustomNukeSolutionConfig.DeployRoot / project.Name / ("Ver" + _gitVersion.SemVer);
+			    AbsolutePath deploy = (AbsolutePath) CustomNukeSolutionConfig.DeployRoot / project.Name / ("Ver" + _gitProcessor.GitVersion.SemVer);
 
 			    // Source
 			    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;

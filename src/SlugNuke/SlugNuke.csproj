@@ -3,15 +3,14 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
-    <AssemblyVersion>1.0.0.124</AssemblyVersion>
+    <AssemblyVersion>1.0.0.185</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="GitVersion.CommandLine" Version="5.5.1">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Nuke.Common" Version="5.0.0" />
+      <PackageReference Include="Colorful.Console" Version="1.2.11" />
+      <PackageReference Include="GitVersion.CommandLine" Version="5.5.1">
+        </PackageReference>
+      <PackageReference Include="Nuke.Common" Version="5.1.0-alpha0002" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +21,10 @@
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     
+  </Target>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="if $(ConfigurationName) == Release (&#xD;&#xA;  copy &quot;$(ProjectDir)*.csproj&quot;  &quot;$(TargetDir)&quot; /Y&#xD;&#xA;  xcopy &quot;$(ProjectDir)obj\project.assets.json&quot; &quot;$(TargetDir)obj\&quot; /Y&#xD;&#xA;  xcopy &quot;$(ProjectDir)obj\project.nuget.cache&quot; &quot;$(TargetDir)obj\&quot; /Y&#xD;&#xA;  echo &quot;Copied Nuke required files&quot;.&#xD;&#xA;)" />
   </Target>
 
 </Project>

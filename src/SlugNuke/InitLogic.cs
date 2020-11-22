@@ -7,16 +7,12 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using Microsoft.Build.Tasks;
+
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
 using NukeConf;
 using static Nuke.Common.IO.FileSystemTasks;
-using static Nuke.Common.IO.PathConstruction;
-using static Nuke.Common.Tools.DotNet.DotNetTasks;
-using Project = Nuke.Common.ProjectModel.Project;
-using System.Xml.Linq;
 using System.Xml.XPath;
 
 
@@ -67,8 +63,14 @@ namespace SlugNuke
 			string assemblyFolder = Path.GetDirectoryName(assemblyFile);
 			Logger.Info("Assembly Folder: " + assemblyFolder);
 			string src = Path.Combine(assemblyFolder, "GitVersion.yml");
-			string dest = RootDirectory / "GitVersion.yml";
-			File.Copy(src,dest,false);
+			AbsolutePath dest = RootDirectory / "GitVersion.yml";
+
+			if (!FileExists(dest))
+				File.Copy(src,dest,false);
+
+
+			// E.  Ensure GitVersion.exe environment variable exists
+
 			return true;
 		}
 
@@ -91,10 +93,13 @@ namespace SlugNuke
 
 
 			bool updates = false;
+			bool updateProjectAdd = false;
+
 			// Now go thru the projects and update the config
 			foreach (InitProject project in Projects) {
 				NukeConf.Project nukeConfProject = customNukeSolutionConfig.GetProjectByName(project.Name);
 				if ( nukeConfProject == null ) {
+					updateProjectAdd = true;
 					nukeConfProject = new NukeConf.Project() {Name = project.Name};
 					nukeConfProject.Framework = project.Framework;
 					if ( project.IsTestProject )
@@ -118,6 +123,7 @@ namespace SlugNuke
 			if ( updates ) {
 				string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());
 				File.WriteAllText(nsbFile,json);
+				if ( updateProjectAdd ) { Logger.Warn("The file: {0} was updated.  One ore more projects were added.  Ensure they have the correct Deploy setting.", nsbFile); }
 			}
 			
 
@@ -325,5 +331,7 @@ namespace SlugNuke
 
 			return files;
 		}
+
+
 	}
 }

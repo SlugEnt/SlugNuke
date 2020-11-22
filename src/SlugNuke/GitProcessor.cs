@@ -26,8 +26,7 @@ namespace SlugNuke
 
 		internal string DotNetPath { get; set; }
 		internal AbsolutePath RootDirectory;
-		internal GitVersion _gitVersion;
-
+		
 		/// <summary>
 		/// The Branch that the repository is currently on
 		/// </summary>
@@ -43,10 +42,16 @@ namespace SlugNuke
 		public List<Output> GitCommandOutputHistory = new List<Output>();
 
 
-		public GitProcessor (AbsolutePath rootPath, GitVersion gitVersion) {
+		/// <summary>
+		/// Constructor
+		/// </summary>
+		/// <param name="rootPath"></param>
+		/// <param name="gitVersion"></param>
+		public GitProcessor (AbsolutePath rootPath) {
 			RootDirectory = rootPath;
-			_gitVersion = gitVersion;
 			DotNetPath = ToolPathResolver.GetPathExecutable("dotnet");
+
+			Fetch_GitVersion();
 		}
 
 
@@ -70,10 +75,10 @@ namespace SlugNuke
 		/// <returns></returns>
 		public bool IsUncommittedChanges () {
 			string gitArgs = "update-index -q --refresh";
-			if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("IsUncommittedChanges::: Git Command failed:  git " + gitArgs);
+			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("IsUncommittedChanges::: Git Command failed:  git " + gitArgs);
 
 			gitArgs = "diff-index --quiet HEAD --";
-			if (!ExecuteGit(gitArgs, out output)) throw new ApplicationException("There are uncommited changes on the current branch: " + CurrentBranch +  "  Commit or discard existing changes and then try again.");
+			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("There are uncommited changes on the current branch: " + CurrentBranch +  "  Commit or discard existing changes and then try again.");
 			return true;
 		}
 
@@ -124,7 +129,7 @@ namespace SlugNuke
 					gitArgs = "checkout master";
 					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}\"", CurrentBranch);
+					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}   |  {1}\"", CurrentBranch, GitVersion.MajorMinorPatch);
 					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
 				}
 
@@ -138,7 +143,10 @@ namespace SlugNuke
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
 				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				if ( !ExecuteGit(gitArgs, out List<Output> gitOutput) ) {
+					if (!gitOutput.Last().Text.Contains("nothing to commit"))
+						throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				}
 
 				gitArgs = string.Format("tag -a {0} -m \"{1}\"", tagName, tagDesc);
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
@@ -165,6 +173,8 @@ namespace SlugNuke
 						if (!bErrorIsExpected)
 							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 					Logger.Success("The previous 2 commits will issue errors if the local branch was never pushed to origin.  They can be safely ignored.");
+
+
 				}
 			}
 			catch (Exception e)
@@ -187,7 +197,7 @@ namespace SlugNuke
 			output.Text = GIT_COMMAND_MARKER +  command + " " + cmdArguments;
 			GitCommandOutputHistory.Add(output);
 
-			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: true);
+			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: false);
 			process.AssertWaitForExit();
 
 			// Copy output to history.
@@ -213,7 +223,7 @@ namespace SlugNuke
 			outputCmd.Text = GIT_COMMAND_MARKER + command + " " + cmdArguments;
 			GitCommandOutputHistory.Add(outputCmd);
 
-			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: true);
+			IProcess process = ProcessTasks.StartProcess(command, cmdArguments, RootDirectory, logOutput: false);
 			process.AssertWaitForExit();
 			output = process.Output.ToList();
 
@@ -231,15 +241,18 @@ namespace SlugNuke
 		/// <returns></returns>
 		public string ProcessVersionsFile () {
 			string fileName = RootDirectory / VERSIONS_FILENAME;
-			string [] versionLines = File.ReadAllLines(fileName);
-			List<string> versionList = new List<string>(versionLines);
+			List<string> versionList = new List<string>();
 
-			// If file is too big, then reduce to minimum size
-			if ( versionList.Count > VERSION_HISTORY_LIMIT ) {
-				int toRemove = versionList.Count - VERSION_HISTORY_TO_KEEP;
-				versionList.RemoveRange(0,toRemove);
+			if ( File.Exists(fileName) ) {
+				string[] versionLines = File.ReadAllLines(fileName);
+				versionList = new List<string>(versionLines);
+
+				// If file is too big, then reduce to minimum size
+				if ( versionList.Count > VERSION_HISTORY_LIMIT ) {
+					int toRemove = versionList.Count - VERSION_HISTORY_TO_KEEP;
+					versionList.RemoveRange(0, toRemove);
+				}
 			}
-
 
 			// Get the last record, which is the latest Version
 			string latestFileVersion = "0.0.0";
@@ -248,8 +261,8 @@ namespace SlugNuke
 
 			
 			// Now use GitVersion to get latest version as GitVersion sees it.
-			string gvLatestVersion = _gitVersion.MajorMinorPatch;
-			string gvLatestSemVer = _gitVersion.SemVer;
+			string gvLatestVersion = GitVersion.MajorMinorPatch;
+			string gvLatestSemVer = GitVersion.SemVer;
 			
 
 			// Write latest version to file if not the same as the current last entry.
@@ -282,5 +295,26 @@ namespace SlugNuke
 			}
 
 		}
+
+
+
+		/// <summary>
+		/// Sets up and queries the GitVersion.
+		/// </summary>
+		public void Fetch_GitVersion () {
+			GitVersion = GitVersionTasks.GitVersion(s => s
+			                                              .SetProcessWorkingDirectory(RootDirectory)
+			                                              .SetFramework("netcoreapp3.1")
+			                                              .SetNoFetch(false)
+			                                              .DisableProcessLogOutput()
+			                                              .SetUpdateAssemblyInfo(true))
+			                             .Result;
+		}
+
+
+		/// <summary>
+		/// Returns the GitVersion object
+		/// </summary>
+		public GitVersion GitVersion { get; private set; }
 	}
 }

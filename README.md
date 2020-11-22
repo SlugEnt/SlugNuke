@@ -20,6 +20,8 @@ The setup target will take an existing solution target and convert it to the pro
 
 The app should be run from the root of the Git Project folder (where the .git folder is located) or specified with the --root argument.  It will then scan for the .sln file including all subdirectories.  Once found it will process the solution file and identify all the projects.  It will further attempt to identify the Testing projects (see below).  It will move all non testing projects underneath the /src folder and all testing projects to the /tests folder.  It will update the solution file and save it.
 
+C:\dev\projectA>  dotnet <path_to_slugnuke>\slugnuke.dll --target Setup --root
+
 Test projects are identified in one of 2 ways.  First it will look at the .csproj file and determine if it contains a Microsoft.NET.Test.Sdk entry.  If so, it will be considered a Test Project.  Second, it will look to see if the project starts with the word Test or ends with the word Test.
 
 ## Assumptions

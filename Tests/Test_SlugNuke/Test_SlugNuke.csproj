@@ -5,7 +5,7 @@
 
     <IsPackable>false</IsPackable>
 
-    <AssemblyVersion>1.0.0.43</AssemblyVersion>
+    <AssemblyVersion>1.0.0.73</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +16,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SlugNuke\SlugNuke.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Nuke.Common">
+      <HintPath>..\..\..\..\OpenSrc\Nuke\Nuke\source\Nuke.Common\bin\Debug\netcoreapp2.1\Nuke.Common.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>
