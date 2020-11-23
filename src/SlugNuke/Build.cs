@@ -172,7 +172,7 @@ class Build : NukeBuild
 	        // For non master build (Publish) we will carry out this step AFTER the Packing.
 	        if (IsProductionBuild)
 	        {
-		        _gitProcessor.CommitMasterVersionChanges();
+		        _gitProcessor.CommitMainVersionChanges();
                 _gitProcessor.Fetch_GitVersion();
 	        }
 

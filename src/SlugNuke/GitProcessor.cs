@@ -9,6 +9,7 @@ using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.GitVersion;
+using Octokit;
 using Console = Colorful.Console;
 
 
@@ -31,9 +32,31 @@ namespace SlugNuke
 		/// The Branch that the repository is currently on
 		/// </summary>
 		public string CurrentBranch { get; set; }
-
 		public string Version { get; set; }
 		public string SemVersion { get; set; }
+
+
+		
+
+		/// <summary>
+		/// Returns True if the current branch is the Main Branch.
+		/// </summary>
+		/// <returns></returns>
+		public bool IsCurrentBranchMainBranch () { return IsMainBranch(CurrentBranch);}
+
+
+		/// <summary>
+		/// Returns True if the given branch name is considered the Main branch.
+		/// </summary>
+		/// <param name="branchName"></param>
+		/// <returns></returns>
+		public static bool IsMainBranch(string branchName) {
+			string lcBranch = branchName.ToLower();
+			if ( lcBranch == "master" || lcBranch == "main" )
+				return true;
+			else
+				return false;
+		}
 
 
 		/// <summary>
@@ -51,6 +74,7 @@ namespace SlugNuke
 			RootDirectory = rootPath;
 			DotNetPath = ToolPathResolver.GetPathExecutable("dotnet");
 
+			IdentifyMainBranch();
 			Fetch_GitVersion();
 		}
 
@@ -119,18 +143,18 @@ namespace SlugNuke
 		/// <summary>
 		/// Performs the transition from a Development branch to a Master branch
 		/// </summary>
-		public void CommitMasterVersionChanges()
+		public void CommitMainVersionChanges()
 		{
 			string gitArgs;
 
 			try {
 				// First we need to checkout master and merge it.
-				if ( CurrentBranch != "master" ) {
-					gitArgs = "checkout master";
-					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				if ( !IsCurrentBranchMainBranch() ) {
+					gitArgs = "checkout " + MainBranchName;
+					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
 					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}   |  {1}\"", CurrentBranch, GitVersion.MajorMinorPatch);
-					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMasterVersionChanges:::  .Git Command failed:  git " + gitArgs);
+					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
 				}
 
 				// Update the versions file with latest info
@@ -158,7 +182,7 @@ namespace SlugNuke
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
 				// Delete the Feature Branch
-				if ( CurrentBranch != "master" ) {
+				if ( CurrentBranch != MainBranchName ) {
 					// See if branch exists on origin.  If not we expect an error below.
 					gitArgs = "ls-remote --exit-code --heads origin " + CurrentBranch;
 					bool bErrorIsExpected = false;
@@ -316,5 +340,32 @@ namespace SlugNuke
 		/// Returns the GitVersion object
 		/// </summary>
 		public GitVersion GitVersion { get; private set; }
+
+
+		/// <summary>
+		/// Determines whether Main or Master is the "main" branch.
+		/// </summary>
+		private void IdentifyMainBranch () {
+			string gitArgs = "branch";
+			if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("IdentifyMainBranch:::   .Git Command failed:  git " + gitArgs);
+
+			bool found = false;
+			foreach ( Output branch in output ) {
+				string branchName = branch.Text.TrimStart().TrimEnd();
+				if ( IsMainBranch(branchName))  {
+					if ( found )
+						throw new ApplicationException(
+							"Appears to be a main and master branch in the repository.  This is not allowed.  Please cleanup the repo so only master or only main exists.");
+					found = true;
+					MainBranchName = branch.Text;
+				}
+			}
+		}
+
+
+		/// <summary>
+		/// The name of the main branch in the repository.
+		/// </summary>
+		public string MainBranchName { get; private set; }
 	}
 }
