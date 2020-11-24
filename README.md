@@ -22,7 +22,9 @@ The app should be run from the root of the Git Project folder (where the .git fo
 
 C:\dev\projectA>  dotnet <path_to_slugnuke>\slugnuke.dll --target Setup --root
 
-Test projects are identified in one of 2 ways.  First it will look at the .csproj file and determine if it contains a Microsoft.NET.Test.Sdk entry.  If so, it will be considered a Test Project.  Second, it will look to see if the project starts with the word Test or ends with the word Test.
+Test projects are identified by look for projects that start or end in Test.
+
+After the app has run you will need to open the solution and reconnect the test projects to the code projects, since they were possibly moved.
 
 ## Assumptions
 This app makes assumptions about the development cycle.  Basically, all Production is committed to master.  All development occurs on Develop, Feature, Fix branches.  You test on those branches, optionally pushing these to Nuget as alpha packages.  Eventually the build is good and you are ready to move to production.  Final commits and builds are made, the development branch is deleted.  

@@ -18,7 +18,10 @@ using System.Xml.XPath;
 
 namespace SlugNuke
 {
-	public class InitLogic
+	/// <summary>
+	/// Sets up a solution to be compatible with SlugNuke, including moving directories, ensuring config files, exist, etc.
+	/// </summary>
+	public class SetupSlugNukeSolution
 	{
 		public AbsolutePath SourceDirectory { get; set; }
 		public AbsolutePath RootDirectory { get; set; }
@@ -30,7 +33,7 @@ namespace SlugNuke
 		internal string DotNetPath { get; set; }
 
 
-		private readonly List<InitProject> Projects = new List<InitProject>();
+		private readonly List<VisualStudioProject> Projects = new List<VisualStudioProject>();
 
 
 		/// <summary>
@@ -42,7 +45,7 @@ namespace SlugNuke
 		/// <returns></returns>
 		public async Task<bool> Initialize () {
 			// Find the Solution - Assume we are in the root folder right now.
-			List<string> solutionFiles = SearchAccessibleFiles(RootDirectory.ToString(), ".sln");
+			List<string> solutionFiles = SearchForSolutionFile(RootDirectory.ToString(), ".sln");
 			ControlFlow.Assert(solutionFiles.Count != 0, "Unable to find the solution file");
 			ControlFlow.Assert(solutionFiles.Count == 1, "Found more than 1 solution file under the root directory -  - We can only work with 1 solution file." + RootDirectory.ToString());
 			string solutionFile = solutionFiles[0];
@@ -96,7 +99,7 @@ namespace SlugNuke
 			bool updateProjectAdd = false;
 
 			// Now go thru the projects and update the config
-			foreach (InitProject project in Projects) {
+			foreach (VisualStudioProject project in Projects) {
 				NukeConf.Project nukeConfProject = customNukeSolutionConfig.GetProjectByName(project.Name);
 				if ( nukeConfProject == null ) {
 					updateProjectAdd = true;
@@ -194,13 +197,13 @@ namespace SlugNuke
 			bool solutionNeedsToMove = false;
 			if ( CurrentSolutionPath.ToString() != ExpectedSolutionPath.ToString() ) solutionNeedsToMove = true;
 
-			List<InitProject> movedProjects = new List<InitProject>();
+			List<VisualStudioProject> movedProjects = new List<VisualStudioProject>();
 			// Step 3
 			foreach (Output outputRec in output)
 			{
 				if (outputRec.Text.EndsWith(".csproj"))
 				{
-					InitProject project = GetInitProject(outputRec.Text);
+					VisualStudioProject project = GetInitProject(outputRec.Text);
 					Projects.Add(project);
 
 					// Do we need to move the project?
@@ -221,7 +224,7 @@ namespace SlugNuke
 
 			// Step 5.  Read project to solution
 			if ( movedProjects.Count > 0 ) {
-				foreach ( InitProject project in movedProjects ) { MoveProjectStepB(project); }
+				foreach ( VisualStudioProject project in movedProjects ) { MoveProjectStepB(project); }
 			}
 			return true;
 		}
@@ -231,9 +234,9 @@ namespace SlugNuke
 		/// <summary>
 		/// Moves a project of a solution:  Moves it's folder location to new location and then updates the solution.
 		/// </summary>
-		/// <param name="project">InitProject object representing the project to move.</param>
+		/// <param name="project">VisualStudioProject object representing the project to move.</param>
 		/// <returns></returns>
-		private bool MoveProjectStepA (InitProject project) {
+		private bool MoveProjectStepA (VisualStudioProject project) {
 			// Move project to new location
 			if (project.OriginalPath.ToString() != project.NewPath.ToString())
 				Directory.Move(project.OriginalPath, project.NewPath);
@@ -248,7 +251,7 @@ namespace SlugNuke
 		}
 
 
-		private bool MoveProjectStepB (InitProject project) {
+		private bool MoveProjectStepB (VisualStudioProject project) {
 			// Now add it back to project with new location
 			string addParam = Path.Combine(project.NewPath, project.Namecsproj);
 			IProcess sln = ProcessTasks.StartProcess(DotNetPath, "sln " + ExpectedSolutionPath + " add " + addParam, logOutput: true);
@@ -261,33 +264,33 @@ namespace SlugNuke
 
 
 		/// <summary>
-		/// Takes the current Project path and creates an official InitProject object from it.
+		/// Takes the current Project path and creates an official VisualStudioProject object from it.
 		/// </summary>
 		/// <param name="path">Path as returned from "dotnet sln" command</param>
 		/// <returns></returns>
-		public InitProject GetInitProject (string path) {
-			InitProject initProject = new InitProject()
+		public VisualStudioProject GetInitProject (string path) {
+			VisualStudioProject visualStudioProject = new VisualStudioProject()
 			{
 				Namecsproj = Path.GetFileName(path),
 				Name = Path.GetFileName(Path.GetDirectoryName(path))
 			};
 			
 			
-			string lcprojName = initProject.Name.ToLower();
+			string lcprojName = visualStudioProject.Name.ToLower();
 
 			AbsolutePath newRootPath = ExpectedSolutionPath;
 			if ( lcprojName.StartsWith("test") || lcprojName.EndsWith("test") ) {
-				initProject.IsTestProject = true;
+				visualStudioProject.IsTestProject = true;
 				newRootPath = TestsDirectory;
 			}
 			
-			initProject.OriginalPath = (AbsolutePath) Path.GetDirectoryName(Path.Combine(CurrentSolutionPath, path));
-			initProject.NewPath = newRootPath / initProject.Name;
+			visualStudioProject.OriginalPath = (AbsolutePath) Path.GetDirectoryName(Path.Combine(CurrentSolutionPath, path));
+			visualStudioProject.NewPath = newRootPath / visualStudioProject.Name;
 
 
 			// Determine Framework type.
-			DetermineFramework(initProject);
-			return initProject;
+			DetermineFramework(visualStudioProject);
+			return visualStudioProject;
 		}
 
 
@@ -296,7 +299,7 @@ namespace SlugNuke
 		/// Determines the Project's targeted framework.
 		/// </summary>
 		/// <param name="project"></param>
-	private void DetermineFramework (InitProject project) {
+	private void DetermineFramework (VisualStudioProject project) {
 			// Determine csproj path
 			AbsolutePath csprojPath = project.OriginalPath / project.Namecsproj;
 
@@ -309,11 +312,11 @@ namespace SlugNuke
 
 
 
-		List<string> SearchAccessibleFiles(string root, string searchTerm)
+		List<string> SearchForSolutionFile(string root, string searchTerm)
 		{
 			var files = new List<string>();
 
-			foreach (var file in Directory.EnumerateFiles(root).Where(m => m.Contains(searchTerm)))
+			foreach (var file in Directory.EnumerateFiles(root).Where(m => m.EndsWith(searchTerm)))
 			{
 				files.Add(file);
 			}
@@ -321,7 +324,7 @@ namespace SlugNuke
 			{
 				try
 				{
-					files.AddRange(SearchAccessibleFiles(subDir, searchTerm));
+					files.AddRange(SearchForSolutionFile(subDir, searchTerm));
 				}
 				catch (UnauthorizedAccessException)
 				{

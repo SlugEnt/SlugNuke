@@ -6,9 +6,9 @@ using Nuke.Common.IO;
 namespace SlugNuke
 {
 	/// <summary>
-	/// Represents a Visual Studio Project for the InitiLogic functionality
+	/// Represents a Visual Studio Project for the Setup Target Functionality
 	/// </summary>
-	public class InitProject {
+	public class VisualStudioProject {
 		public string Name { get; set; }
 		public string Namecsproj { get; set; }
 		public AbsolutePath OriginalPath { get; set; }

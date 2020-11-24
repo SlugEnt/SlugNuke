@@ -17,7 +17,7 @@ branches:
     increment: Minor
     regex: ^release?[/-]
   hotfix:
-    tag: beta
+    tag: fix
     regex: ^hotfix(es)?[/-]|^fix[/-]
     increment: Patch
   master: 

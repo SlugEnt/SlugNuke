@@ -2,7 +2,7 @@
   "profiles": {
     "SlugNuke": {
       "commandName": "Project",
-      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd --SkipNuget"
+      "commandLineArgs": "--root c:\\a_dev\\slugent\\Locker --Target PublishProd --SkipNuget"
     }
   }
 }

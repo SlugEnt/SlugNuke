@@ -43,11 +43,13 @@ class Build : NukeBuild
 
 	public static int Main () {
 
+        
         return Execute<Build>(x => x.Compile);
 	}
 
 
-    [Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")] 
+
+	[Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")] 
     readonly Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
 
 #pragma warning disable CS0649,IDE0044
@@ -63,7 +65,7 @@ class Build : NukeBuild
     AbsolutePath SourceDirectory => RootDirectory / "src";
     AbsolutePath TestsDirectory => RootDirectory / "tests";
     AbsolutePath OutputDirectory => RootDirectory / "artifacts";
-
+    
     CustomNukeSolutionConfig CustomNukeSolutionConfig;
 
     GitProcessor _gitProcessor;
@@ -71,30 +73,28 @@ class Build : NukeBuild
     bool IsProductionBuild = false;
 
 
-    /// <summary>     
-    /// Called before most of the other Targets, to ensure various required items are setup
-    /// </summary>
-    Target PreProcessing => _ => _
-        .Unlisted()
-	    .Executes(async() => {
+ 
 
+    /// <summary>
+    /// Pre-Processing that must occur for majority of the targets to work.
+    /// </summary>
+    private void PreProcessing () {
 	    Utility.ValidateGetVersionEnvVariable();
 
-
-        
 	    // Loads the Solution specific configuration information for building.
-        using (FileStream fs = File.OpenRead(RootDirectory / "NukeSolutionBuild.Conf")) { CustomNukeSolutionConfig = await JsonSerializer.DeserializeAsync<CustomNukeSolutionConfig>(fs,CustomNukeSolutionConfig.SerializerOptions()); }
+	    string json = File.ReadAllText(RootDirectory / "NukeSolutionBuild.Conf");
+	    CustomNukeSolutionConfig = JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, CustomNukeSolutionConfig.SerializerOptions()); 
 
-        // Setup the GitProcessor
-        _gitProcessor = new GitProcessor(RootDirectory);
+	    // Setup the GitProcessor
+	    _gitProcessor = new GitProcessor(RootDirectory);
 
 
-        if (_gitProcessor.GitVersion == null) Logger.Error("GitVersion not Loaded");
+	    if (_gitProcessor.GitVersion == null) Logger.Error("GitVersion not Loaded");
 
-        // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
-        _gitProcessor.GetCurrentBranch();
-        _gitProcessor.IsUncommittedChanges();
-    });
+	    // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
+	    _gitProcessor.GetCurrentBranch();
+	    _gitProcessor.IsUncommittedChanges();
+    }
 
 
 
@@ -105,7 +105,7 @@ class Build : NukeBuild
     Target Setup => _ => _
         .Description("Called when first placing a solution under SlugNuke build control.  Also, call anytime you change a project's framework or add projects.")
 	    .Executes(async () => {
-        InitLogic initializationLogic = new InitLogic()
+        SetupSlugNukeSolution initializationLogic = new SetupSlugNukeSolution()
 	    {
 
 		    RootDirectory = RootDirectory,
@@ -164,7 +164,7 @@ class Build : NukeBuild
 
     Target Compile => _ => _
         .DependsOn(Restore)
-        .DependsOn(PreProcessing)
+        //.DependsOn(PreProcessing)
         .Executes(() =>
         {
 	        // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
@@ -204,7 +204,7 @@ class Build : NukeBuild
     /// Prep for sending to a Nuget style repo
     /// </summary>
     Target Pack => _ => _
-        .DependsOn(PreProcessing)
+       // .DependsOn(PreProcessing)
         .DependsOn(Compile)
 		.DependsOn(Test)
 
@@ -284,7 +284,8 @@ class Build : NukeBuild
        .Requires(() => NugetRepoUrl)
        .Executes(() =>
        {
-	       if ( !SkipNuget ) {
+	       if (SkippedTargets.Count > 0) { ControlFlow.Assert(1 == 0, "You cannot use the --skip flag with PublishProd.  PublishProd Process requires the previous steps to have completed."); }
+           if ( !SkipNuget ) {
 		       GlobFiles(OutputDirectory, "*.nupkg")
 			       .NotEmpty()
 			       .Where(x => !x.EndsWith("symbols.nupkg"))
@@ -346,7 +347,7 @@ class Build : NukeBuild
 
 
     Target Temp => _ => _ 
-                        .DependsOn(PreProcessing)
+                        //.DependsOn(PreProcessing)
 	    .Executes(() => {
 	    PublishCopiedFolders();
     });
@@ -358,6 +359,12 @@ class Build : NukeBuild
     protected override void OnBuildInitialized()
     {
 	    base.OnBuildInitialized();
+
+        // We need to do pre-processing if this is not the Setup target.
+        if (!InvokedTargets.Contains(Setup))
+			PreProcessing();
+
+
 	    if (InvokedTargets.Contains(PublishProd)) IsProductionBuild = true;
     }
 

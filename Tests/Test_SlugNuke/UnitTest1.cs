@@ -19,13 +19,13 @@ namespace Test_SlugNuke
 		[TestCase(@"C:\dev\projects\ProjA",@"A.B\A.B.csproj","A.B",@"C:\dev\projects\ProjA\A.B",@"C:\dev\projects\ProjA\Src\A.B")]
 		[Test]
 		public void PathTests(string currentSolutionLocation, string currentProjectLoc, string expName, string expOrigPath, string expNewPath) {
-			InitLogic init = new InitLogic() { 
+			SetupSlugNukeSolution init = new SetupSlugNukeSolution() { 
 				RootDirectory = (AbsolutePath) rootPath,
 				SourceDirectory = (AbsolutePath) rootPath / "Src",
 				CurrentSolutionPath = (AbsolutePath) currentSolutionLocation,
 				ExpectedSolutionPath = (AbsolutePath) rootPath / "Src"
 			};
-		InitProject project;
+		VisualStudioProject project;
 			project =  init.GetInitProject(currentProjectLoc);
 			Assert.AreEqual(expName,project.Name,"A10: Name different");
 			Assert.AreEqual((AbsolutePath) expNewPath,project.NewPath,"A20: New Path different");

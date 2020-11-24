@@ -357,7 +357,7 @@ namespace SlugNuke
 						throw new ApplicationException(
 							"Appears to be a main and master branch in the repository.  This is not allowed.  Please cleanup the repo so only master or only main exists.");
 					found = true;
-					MainBranchName = branch.Text;
+					MainBranchName = branchName;
 				}
 			}
 		}
