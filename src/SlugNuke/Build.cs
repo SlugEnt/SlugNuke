@@ -1,34 +1,29 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net.Mime;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using Nuke.Common;
 using Nuke.Common.CI;
 using Nuke.Common.Execution;
-using Nuke.Common.Git;
 using Nuke.Common.IO;
 using Nuke.Common.ProjectModel;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
 using Nuke.Common.Tools.EntityFramework;
 using Nuke.Common.Tools.GitVersion;
-using Nuke.Common.Utilities;
 using Nuke.Common.Utilities.Collections;
 using NukeConf;
 using SlugNuke;
-using static Nuke.Common.EnvironmentInfo;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 using Project = Nuke.Common.ProjectModel.Project;
 
-[assembly:  InternalsVisibleTo("Test_SlugNuke")]
+[assembly: InternalsVisibleTo("Test_SlugNuke")]
 
 
 [CheckBuildProjectConfigurations]
@@ -125,8 +120,7 @@ class Build : NukeBuild
     /// </summary>
     Target Info => _ => _
         .Description("Provides information about the current solution")
-        //.DependsOn(PreProcessing)
-	    .Executes(() =>
+        .Executes(() =>
 	    {
 		    Logger.Normal("Root =         " + RootDirectory.ToString());
             Logger.Normal("Source =       " + SourceDirectory.ToString());
@@ -164,7 +158,6 @@ class Build : NukeBuild
 
     Target Compile => _ => _
         .DependsOn(Restore)
-        //.DependsOn(PreProcessing)
         .Executes(() =>
         {
 	        // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
@@ -172,8 +165,8 @@ class Build : NukeBuild
 	        // For non master build (Publish) we will carry out this step AFTER the Packing.
 	        if (IsProductionBuild)
 	        {
-		        _gitProcessor.CommitMainVersionChanges();
-                _gitProcessor.Fetch_GitVersion();
+                _gitProcessor.MainVersionCheckout();
+		        _gitProcessor.Fetch_GitVersion();
 	        }
 
             Logger.Normal("Source = " + SourceDirectory.ToString());
@@ -186,8 +179,7 @@ class Build : NukeBuild
             string fileVer = _gitProcessor.GitVersion.AssemblySemFileVer;
             string infoVer = _gitProcessor.GitVersion.InformationalVersion;
 
-            //if ( IsProductionBuild ) { assemblyVer = fileVer = infoVer = _gitProcessor.GitVersion.MajorMinorPatch; }
-
+            
             DotNetBuild(s => s
                              .SetProjectFile(Solution)
                 .SetConfiguration(Configuration)
@@ -196,6 +188,10 @@ class Build : NukeBuild
                 .SetInformationalVersion(infoVer)
                 .SetVerbosity(DotNetVerbosity.Minimal)
                 .EnableNoRestore());
+
+            // Finalize the Master Commit
+            if (IsProductionBuild)
+				_gitProcessor.CommitMainVersionChanges();
         });
 
 
@@ -252,11 +248,15 @@ class Build : NukeBuild
 					       // Look for skipped message.
 					       foreach ( Output outputLine in result ) {
 						       if ( outputLine.Text.Contains("already exists at feed") ) {
-							       string msg = @"A nuget package with this name and version already exists. " +
-							                    "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
-							                    "Will carry on as though this push was successfull.  " +
-							                    "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
-							       Logger.Warn(msg);
+							       string errMsgStart =
+								       "The push to Nuget repository failed because this package and version already exist in the Nuget Repo.  ";
+							       if ( _gitProcessor.WasVersionPreviouslyCommitted )
+								       Logger.Warn(errMsgStart + 
+									       "This is an expected result based on Versioning history.");
+							       else {
+                                       Logger.Warn(errMsgStart + 
+                                                   "From the Git Version Tag history, this was not an expected result.  Please check the Nuget Repo, and Git to determine if this was expected");
+							       }
 						       }
 					       }
 				       }
@@ -264,11 +264,11 @@ class Build : NukeBuild
 	       }
 
 	       // Update the Versions file with the latest
-		       string lastVersion = _gitProcessor.ProcessVersionsFile();
-		       _gitProcessor.CommitSemVersionChanges();
-	       
+	       string lastVersion = _gitProcessor.ReadVersionsFile(true);
+           _gitProcessor.CommitSemVersionChanges();
+       
 
-		       Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
+	       Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
        });
 
 
@@ -296,7 +296,7 @@ class Build : NukeBuild
 					       // Look for skipped message.
 					       foreach ( Output outputLine in result ) {
 						       if ( outputLine.Text.Contains("already exists at feed") ) {
-							       string msg = @"A nuget package with this name and version already exists. " +
+							       string msg = @"A nuget package  <" + Path.GetFileName(x) + ">  with this name and version already exists. " +
 							                    "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
 							                    "Will carry on as though this push was successfull.  " +
 							                    "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
@@ -306,6 +306,9 @@ class Build : NukeBuild
 				       }
 			       });
 	       }
+
+			// Now process Copy Outputs.
+			PublishCopiedFolders();
 
 	       Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
        });
@@ -370,28 +373,12 @@ class Build : NukeBuild
 
 
 
-    /// <summary>
-    /// Copies an entire directory, files and subdirs to a destination location.
-    /// </summary>
-    /// <param name="sourcePath"></param>
-    /// <param name="DestPath"></param>
-    public static void CopyEntireDirectory(string sourcePath, string DestPath)
-    {
-	    Parallel.ForEach(Directory.GetFileSystemEntries(sourcePath, "*", SearchOption.AllDirectories)
-	                     , (fileName) =>
-	                     {
-		                     string output = Regex.Replace(fileName, "^" + Regex.Escape(sourcePath), DestPath);
-		                     if (File.Exists(fileName))
-		                     {
-			                     Directory.CreateDirectory(Path.GetDirectoryName(output));
-			                     File.Copy(fileName, output, true);
-		                     }
-		                     else
-			                     Directory.CreateDirectory(output);
-	                     });
-    }
-
     
+
+    /// <summary>
+    /// Publishes projects that are deployed to a provided folder location.
+    /// </summary>
+    /// <returns></returns>
     public bool PublishCopiedFolders () {
 	    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
 		    if ( project.Deploy == CustomNukeConfigEnum.Copy ) {
@@ -401,7 +388,7 @@ class Build : NukeBuild
 			    // Source
 			    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
 
-			    CopyEntireDirectory(src, deploy);
+			    Utility.CopyEntireDirectory(src, deploy);
 		    }
 
 	    }

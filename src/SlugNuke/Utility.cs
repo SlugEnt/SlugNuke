@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Nuke.Common;
 using Nuke.Common.Tooling;
 using Console = Colorful.Console;
@@ -52,6 +55,28 @@ namespace SlugNuke
 			return true;
 		}
 
-		
+
+
+
+		/// <summary>
+		/// Copies an entire directory, files and subdirs to a destination location.
+		/// </summary>
+		/// <param name="sourcePath"></param>
+		/// <param name="DestPath"></param>
+		public static void CopyEntireDirectory(string sourcePath, string DestPath)
+		{
+			Parallel.ForEach(Directory.GetFileSystemEntries(sourcePath, "*", SearchOption.AllDirectories)
+			                 , (fileName) =>
+			                 {
+				                 string output = Regex.Replace(fileName, "^" + Regex.Escape(sourcePath), DestPath);
+				                 if (File.Exists(fileName))
+				                 {
+					                 Directory.CreateDirectory(Path.GetDirectoryName(output));
+					                 File.Copy(fileName, output, true);
+				                 }
+				                 else
+					                 Directory.CreateDirectory(output);
+			                 });
+		}
 	}
 }

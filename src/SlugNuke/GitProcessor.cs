@@ -34,9 +34,11 @@ namespace SlugNuke
 		public string CurrentBranch { get; set; }
 		public string Version { get; set; }
 		public string SemVersion { get; set; }
+		public string GitTagName { get; private set; }
+		public string GitTagDesc { get; private set; }
 
+		List<string> _versionList = new List<string>();
 
-		
 
 		/// <summary>
 		/// Returns True if the current branch is the Main Branch.
@@ -60,6 +62,13 @@ namespace SlugNuke
 
 
 		/// <summary>
+		/// Will tell you if the Version had been previously committed to Git.  This means that we are possibly only doing these steps to get to a later
+		/// step (such as pack or publish) that might have previously failed for some reason (Bad password, userId, path, etc)
+		/// </summary>
+		public bool WasVersionPreviouslyCommitted { get; private set; }
+
+
+		/// <summary>
 		/// Keeps track of all of the Git Command output for debugging purposes.
 		/// </summary>
 		public List<Output> GitCommandOutputHistory = new List<Output>();
@@ -76,6 +85,24 @@ namespace SlugNuke
 
 			IdentifyMainBranch();
 			Fetch_GitVersion();
+			PrintGitCommandVersion();
+		}
+
+
+		/// <summary>
+		/// Prints the current version of the Git Command being used.  Version is only shown when PrintGitHistory is called.
+		/// </summary>
+		private void PrintGitCommandVersion () {
+			List<Output> gitOutput;
+
+			try {
+				string gitArgs = "--version";
+				ControlFlow.Assert(ExecuteGit(gitArgs, out gitOutput) == true, "PrintGitCommandVersion:::  .Git Command Failed:  git " + gitArgs);
+			}
+			catch (Exception e) { 
+				PrintGitHistory();
+				throw e;
+			}
 		}
 
 
@@ -85,10 +112,18 @@ namespace SlugNuke
 		/// </summary>
 		/// <returns></returns>
 		public string GetCurrentBranch () {
-			string cmdArgs = "branch --show-current";
-			if (!ExecuteGit(cmdArgs, out List<Output> output)) throw new ApplicationException("GetCurrentBranch::: Git Command failed:  git " + cmdArgs);
-			CurrentBranch = output.First().Text;
-			return CurrentBranch;
+			try { 
+				string cmdArgs = "branch --show-current";
+				if (!ExecuteGit(cmdArgs, out List<Output> output)) throw new ApplicationException("GetCurrentBranch::: Git Command failed:  git " + cmdArgs);
+				CurrentBranch = output.First().Text;
+				return CurrentBranch;
+			}
+			catch (Exception e)
+			{
+				PrintGitHistory();
+				throw e;
+			}
+
 		}
 
 
@@ -98,12 +133,20 @@ namespace SlugNuke
 		/// </summary>
 		/// <returns></returns>
 		public bool IsUncommittedChanges () {
-			string gitArgs = "update-index -q --refresh";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("IsUncommittedChanges::: Git Command failed:  git " + gitArgs);
+			try { 
+				string gitArgs = "update-index -q --refresh";
+				if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("IsUncommittedChanges::: Git Command failed:  git " + gitArgs);
 
-			gitArgs = "diff-index --quiet HEAD --";
-			if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("There are uncommited changes on the current branch: " + CurrentBranch +  "  Commit or discard existing changes and then try again.");
-			return true;
+				gitArgs = "diff-index --quiet HEAD --";
+				if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("There are uncommited changes on the current branch: " + CurrentBranch +  "  Commit or discard existing changes and then try again.");
+				return true;
+			}
+			catch (Exception e)
+			{
+				PrintGitHistory();
+				throw e;
+			}
+
 		}
 
 
@@ -113,16 +156,16 @@ namespace SlugNuke
 		/// </summary>
 		public void CommitSemVersionChanges () {
 			try {
-				string tagName = "Ver" + SemVersion;
-				string tagDesc = "Deployed Version:  " + CurrentBranch + "  |  " + SemVersion;
+				GitTagName = "Ver" + SemVersion;
+				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + SemVersion;
 
 				string gitArgs = "add .";
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
+				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, GitTagDesc);
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
-				gitArgs = string.Format("tag -a {0} -m \"{1}\"", tagName, tagDesc);
+				gitArgs = string.Format("tag -a {0} -m \"{1}\"", GitTagName, GitTagDesc);
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
 				gitArgs = "push --set-upstream origin " + CurrentBranch;
@@ -139,13 +182,14 @@ namespace SlugNuke
 
 
 
-
 		/// <summary>
-		/// Performs the transition from a Development branch to a Master branch
+		/// This is the initial Main Version Commit Transition logic.
 		/// </summary>
-		public void CommitMainVersionChanges()
-		{
+		public void MainVersionCheckout () {
 			string gitArgs;
+			string commitErrStart = "MainVersionCheckout:::  Git Command Failed:  git ";
+
+			List<Output> gitOutput;
 
 			try {
 				// First we need to checkout master and merge it.
@@ -153,26 +197,60 @@ namespace SlugNuke
 					gitArgs = "checkout " + MainBranchName;
 					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}   |  {1}\"", CurrentBranch, GitVersion.MajorMinorPatch);
+					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}   |  {1}\"",  CurrentBranch, GitVersion.MajorMinorPatch);
 					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
 				}
 
-				// Update the versions file with latest info
-				ProcessVersionsFile();
+				// Read Version info from file.
+				ReadVersionsFile(false);
 
-				string tagName = "Ver" + Version;
-				string tagDesc = "Deployed Version:  " + CurrentBranch + "  |  " + Version;
+				GitTagName = "Ver" + Version;
+				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + Version;
+
+				// See if the Tag exists already, if so we will get errors later, better to stop now.
+				gitArgs = "describe --tags --abbrev=0";
+				ControlFlow.Assert(ExecuteGit(gitArgs, out gitOutput) == true, commitErrStart + gitArgs);
+				string latestVer = "";
+				
+				if ( gitOutput.Count > 0 && gitOutput [0].Text == GitTagName ) {
+					WasVersionPreviouslyCommitted = true;
+					Logger.Warn("The Git Tag: {0} was previously committed.  We are assuming this is one of 2 things:  1) Just a rebuild of the current branch with no changes.  2) A run to correct a prior error in a later stage.  Certain code sections will be skipped.", GitTagName);
+				}
+				
+			}
+			catch (Exception e)
+			{
+				PrintGitHistory();
+				throw e;
+			}
+
+		}
+
+
+		/// <summary>
+		/// This is the Main Branch Commit stage
+		/// </summary>
+		public void CommitMainVersionChanges()
+		{
+			string gitArgs;
+			List<Output> gitOutput;
+
+			// This is not an update, it is a redo of previous run that may have errored or its a clean run, but no changes have been committed.  So we skip this.
+			if ( WasVersionPreviouslyCommitted ) return;
+
+			try {
+				WriteVersionsFile();
 
 				gitArgs = "add .";
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
 
-				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, tagDesc);
-				if ( !ExecuteGit(gitArgs, out List<Output> gitOutput) ) {
+				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, GitTagDesc);
+				if ( !ExecuteGit(gitArgs, out gitOutput) ) {
 					if (!gitOutput.Last().Text.Contains("nothing to commit"))
 						throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 				}
 
-				gitArgs = string.Format("tag -a {0} -m \"{1}\"", tagName, tagDesc);
+				gitArgs = string.Format("tag -a {0} -m \"{1}\"", GitTagName, GitTagDesc);
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
 				gitArgs = "push origin ";
@@ -197,8 +275,6 @@ namespace SlugNuke
 						if (!bErrorIsExpected)
 							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 					Logger.Success("The previous 2 commits will issue errors if the local branch was never pushed to origin.  They can be safely ignored.");
-
-
 				}
 			}
 			catch (Exception e)
@@ -262,26 +338,27 @@ namespace SlugNuke
 		/// <summary>
 		/// Processes the Versions file, Updating it to the latest from the current Git Branch if they are not the same.
 		/// </summary>
+		/// <param name="updateVersionFile">If true (Should only be set during Test Builds, not Production) it will also update the versions.txt file</param>
 		/// <returns></returns>
-		public string ProcessVersionsFile () {
+		public string ReadVersionsFile (bool updateVersionFile) {
 			string fileName = RootDirectory / VERSIONS_FILENAME;
-			List<string> versionList = new List<string>();
+			
 
 			if ( File.Exists(fileName) ) {
 				string[] versionLines = File.ReadAllLines(fileName);
-				versionList = new List<string>(versionLines);
+				_versionList = new List<string>(versionLines);
 
 				// If file is too big, then reduce to minimum size
-				if ( versionList.Count > VERSION_HISTORY_LIMIT ) {
-					int toRemove = versionList.Count - VERSION_HISTORY_TO_KEEP;
-					versionList.RemoveRange(0, toRemove);
+				if ( _versionList.Count > VERSION_HISTORY_LIMIT ) {
+					int toRemove = _versionList.Count - VERSION_HISTORY_TO_KEEP;
+					_versionList.RemoveRange(0, toRemove);
 				}
 			}
 
 			// Get the last record, which is the latest Version
 			string latestFileVersion = "0.0.0";
-			if (versionList.Count != 0)
-				latestFileVersion = versionList.Last();
+			if (_versionList.Count != 0)
+				latestFileVersion = _versionList.Last();
 
 			
 			// Now use GitVersion to get latest version as GitVersion sees it.
@@ -292,15 +369,24 @@ namespace SlugNuke
 			// Write latest version to file if not the same as the current last entry.
 			string gvFull = gvLatestVersion + "|" + gvLatestSemVer;
 			if ( gvFull != latestFileVersion ) {
-				versionList.Add(gvFull);
-				File.WriteAllLines(fileName, versionList.ToArray());
+				_versionList.Add(gvFull);
 			}
 
 			Version = gvLatestVersion;
 			SemVersion = gvLatestSemVer;
 
-			return versionList.Last();
+			if (updateVersionFile) WriteVersionsFile();
+
+			return _versionList.Last();
 		}
+
+
+
+		private void WriteVersionsFile () {
+			string fileName = RootDirectory / VERSIONS_FILENAME;
+			File.WriteAllLines(fileName, _versionList.ToArray());
+		}
+
 
 
 		/// <summary>
@@ -346,12 +432,15 @@ namespace SlugNuke
 		/// Determines whether Main or Master is the "main" branch.
 		/// </summary>
 		private void IdentifyMainBranch () {
+			try { 
 			string gitArgs = "branch";
 			if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("IdentifyMainBranch:::   .Git Command failed:  git " + gitArgs);
 
+			char [] skipChars = new [] {' ', '*'};
+
 			bool found = false;
 			foreach ( Output branch in output ) {
-				string branchName = branch.Text.TrimStart().TrimEnd();
+				string branchName = branch.Text.TrimStart(skipChars).TrimEnd();
 				if ( IsMainBranch(branchName))  {
 					if ( found )
 						throw new ApplicationException(
@@ -360,7 +449,35 @@ namespace SlugNuke
 					MainBranchName = branchName;
 				}
 			}
+			}
+			catch (Exception e)
+			{
+				PrintGitHistory();
+				throw e;
+			}
+
 		}
+
+
+
+		/// <summary>
+		/// adds spaces between every slash it finds in the branch name.
+		/// </summary>
+		/// <param name="branch"></param>
+		/// <returns></returns>
+		public string PrettyPrintBranchName (string branch) {
+			string[] parts = branch.Split('/');
+			string newName = "";
+			foreach ( string item in parts ) {
+				if ( newName != string.Empty )
+					newName = newName + " / " + item;
+				else
+					newName = item;
+			}
+
+			return newName;
+		}
+
 
 
 		/// <summary>
