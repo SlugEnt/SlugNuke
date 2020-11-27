@@ -267,7 +267,7 @@ namespace SlugNuke
 					if ( !ExecuteGit_NoOutput(gitArgs) ) bErrorIsExpected = true;
 
 					gitArgs = "branch -d " + CurrentBranch;
-					if ( !ExecuteGit_NoOutput(gitArgs) ) 
+					if ( !ExecuteGit_NoOutput(gitArgs) && !bErrorIsExpected ) 
 							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
 
 					gitArgs = "push origin --delete " + CurrentBranch;

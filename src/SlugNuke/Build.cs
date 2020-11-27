@@ -389,6 +389,7 @@ class Build : NukeBuild
 			    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
 
 			    Utility.CopyEntireDirectory(src, deploy);
+                Logger.Info("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
 		    }
 
 	    }
