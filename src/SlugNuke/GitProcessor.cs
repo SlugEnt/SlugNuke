@@ -120,6 +120,8 @@ namespace SlugNuke
 			catch (Exception e)
 			{
 				PrintGitHistory();
+				if ( e.Message.Contains("Sequence contains no elements") ) 
+					throw new InvalidOperationException("Do you have a branch checked out?  Original error: " + e.Message);
 				throw e;
 			}
 
@@ -151,6 +153,34 @@ namespace SlugNuke
 
 
 		/// <summary>
+		/// Determines if the the local "Current" branch is up to date with the remote branch.  If not it will throw an error.
+		/// </summary>
+		/// <param name="branchName"></param>
+		/// <returns></returns>
+		public bool IsBranchUpToDate (string branchName = null) {
+			if ( branchName == null ) branchName = CurrentBranch;
+
+			try {
+				string gitArgs = "remote update";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("IsBranchUpToDate::: Git Command failed:  git " + gitArgs);
+
+				gitArgs = "status uno";
+				if ( !ExecuteGit_NoOutput(gitArgs) )
+					throw new ApplicationException("IsBranchUpToDate::: Your local branch: [" +
+					                               branchName +
+					                               "] is not up to date with the remote one.  You will need to manually correct and then try again.");
+				return true;
+			}
+			catch (Exception e)
+			{
+				PrintGitHistory();
+				throw e;
+			}
+
+		}
+
+
+		/// <summary>
 		/// Used to push the app into a Development commit, which means it is tagged with a SemVer tag, such as 2.5.6-alpha1001
 		/// </summary>
 		public void CommitSemVersionChanges () {
@@ -177,7 +207,11 @@ namespace SlugNuke
 		}
 
 
-		public void MainVersionCheckoutSimple (bool isMainBranchBuild) {
+		/// <summary>
+		/// Gets the next version and the GitTags
+		/// </summary>
+		/// <param name="isMainBranchBuild"></param>
+		public void GetNextVersionAndTags (bool isMainBranchBuild) {
 			string gitArgs;
 			string commitErrStart = "MainVersionCheckout:::  Git Command Failed:  git ";
 
@@ -185,25 +219,23 @@ namespace SlugNuke
 
 			try {
 				GetNextVersion(isMainBranchBuild);
+				// Override GitTagName if main branch
+				if ( isMainBranchBuild ) {
+					GitTagName = "Ver" + Version;
 
-				// First we need to checkout master and merge it.
-				if ( !IsCurrentBranchMainBranch() ) {
-					if ( isMainBranchBuild ) {
-				//		SemVersion = Version;
-						GitTagName = "Ver" + Version;
-					}
-					else
-						GitTagName = "Ver" + SemVersion;
+					// Lets validate that local master and remote master are up to date.  If not then no need to proceed with anything else - we will have problems later
+					IsBranchUpToDate(MainBranchName);
 				}
+				else
+					GitTagName = "Ver" + SemVersion;
+
 
 				//GitTagName = "Ver" + Version;
 				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + Version;
 
-
 				// See if the Tag exists already, if so we will get errors later, better to stop now.  
 				gitArgs = "describe --tags --abbrev=0";
 				ControlFlow.Assert(ExecuteGit(gitArgs, out gitOutput) == true, commitErrStart + gitArgs);
-				
 
 				if (gitOutput.Count > 0 && gitOutput[0].Text == GitTagName)
 				{
@@ -358,6 +390,8 @@ namespace SlugNuke
 
 			string label = GitVersion.PreReleaseLabel;
 			int commitNumber = GetBranchCommitCount();
+			ControlFlow.Assert(commitNumber > 0, "There are no commits on branch [" + CurrentBranch + "].  Since this is a non-main branch there is nothing to do.");
+
 			//int commitNumber = Int32.Parse(GitVersion.CommitsSinceVersionSource);
 			//commitNumber++;
 			SemVersion = Version + "-" + label + "." + commitNumber;

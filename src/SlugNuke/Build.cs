@@ -100,6 +100,7 @@ public partial class Build : NukeBuild
 	    // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
 	    _gitProcessor.GetCurrentBranch();
 	    _gitProcessor.IsUncommittedChanges();
+	    _gitProcessor.IsBranchUpToDate();
 
 	    if ( _gitProcessor.IsCurrentBranchMainBranch() && InvokedTargets.Contains(Publish) ) {
 		    string msg =
@@ -184,11 +185,7 @@ public partial class Build : NukeBuild
             // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
             // This ensure we do not build the package with -alpha suffix.
             // For non master build (Publish) we will carry out this step AFTER the Packing.
-            //if (IsProductionBuild)
-	        {
-                _gitProcessor.MainVersionCheckoutSimple(IsProductionBuild);
-	        }
-            //else { _gitProcessor.GetNextVersion();}
+            _gitProcessor.MainVersionCheckoutSimple(IsProductionBuild);
 
             string infoVer = _gitProcessor.SemVersion;
 
@@ -389,12 +386,14 @@ public partial class Build : NukeBuild
     {
 	    base.OnBuildInitialized();
 
+	    if (InvokedTargets.Contains(PublishProd)) IsProductionBuild = true;
+
         // We need to do pre-processing if this is not the Setup target.
         if (!InvokedTargets.Contains(Setup))
 			PreProcessing();
 
 
-	    if (InvokedTargets.Contains(PublishProd)) IsProductionBuild = true;
+	    
     }
 
     
