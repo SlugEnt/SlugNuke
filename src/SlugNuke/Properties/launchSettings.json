@@ -2,7 +2,23 @@
   "profiles": {
     "SlugNuke": {
       "commandName": "Project",
-      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd "
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd --SkipNuget --Configuration Debug"
+    },
+    "Setup": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target Setup"
+    },
+    "PublishProd": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd"
+    },
+    "PublishProd SkipNuget": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd --SkipNuget "
+    },
+    "PublishTest SkipNuget": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target Publish --SkipNuget "
     }
   }
 }

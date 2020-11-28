@@ -156,23 +156,29 @@ namespace SlugNuke
 		/// </summary>
 		public void CommitSemVersionChanges () {
 			try {
+				string commitErrStart = "CommitSemVersionChanges:::  Git Command Failed:  git ";
 				GitTagName = "Ver" + SemVersion;
 				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + SemVersion;
-
+				List<Output> gitOutput;
 				string gitArgs = "add .";
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
 
 				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, GitTagDesc);
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				if ( !ExecuteGit(gitArgs, out gitOutput) ) {
+					if ( gitOutput.Last().Text.Contains("nothing to commit") ) return;
+					
+					throw new ApplicationException(commitErrStart + gitArgs);
+				}
 
 				gitArgs = string.Format("tag -a {0} -m \"{1}\"", GitTagName, GitTagDesc);
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
 
 				gitArgs = "push --set-upstream origin " + CurrentBranch;
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
 
 				gitArgs = "push --tags origin";
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
 			}
 			catch ( Exception e ) {
 				PrintGitHistory();

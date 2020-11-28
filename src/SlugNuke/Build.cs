@@ -18,6 +18,8 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Xml.Linq;
+using System.Xml.XPath;
 using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
@@ -28,7 +30,7 @@ using Project = Nuke.Common.ProjectModel.Project;
 
 [CheckBuildProjectConfigurations]
 [ShutdownDotNetAfterServerBuild]
-class Build : NukeBuild
+public partial class Build : NukeBuild
 {
 	/// Support plugins are available for:
 	///   - JetBrains ReSharper        https://nuke.build/resharper
@@ -44,8 +46,8 @@ class Build : NukeBuild
 
 
 
-	[Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")] 
-    readonly Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
+	[Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")]
+	Configuration Configuration;
 
 #pragma warning disable CS0649,IDE0044
     [Parameter("Nuget API Key used to deploy to Nuget compatible Repo.")] string NugetApiKey;
@@ -74,11 +76,20 @@ class Build : NukeBuild
     /// Pre-Processing that must occur for majority of the targets to work.
     /// </summary>
     private void PreProcessing () {
-	    Utility.ValidateGetVersionEnvVariable();
+	    if ( Configuration == null ) {
+		    if (this.InvokedTargets.Contains(PublishProd)) 
+			    Configuration = Configuration.Release; 
+            else
+				Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
+	    }
+
+	    
+        Utility.ValidateGetVersionEnvVariable();
 
 	    // Loads the Solution specific configuration information for building.
 	    string json = File.ReadAllText(RootDirectory / "NukeSolutionBuild.Conf");
-	    CustomNukeSolutionConfig = JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, CustomNukeSolutionConfig.SerializerOptions()); 
+	    CustomNukeSolutionConfig = JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, CustomNukeSolutionConfig.SerializerOptions());
+	    ControlFlow.Assert(CustomNukeSolutionConfig.IsRootFolderSpecified(Configuration),"The DeployProdRoot or DeployTestRoot in the NukeSolutionBuild.Conf do not contain valid entries.  Run SlugNuke --Target Setup to fix.");
 
 	    // Setup the GitProcessor
 	    _gitProcessor = new GitProcessor(RootDirectory);
@@ -211,7 +222,7 @@ class Build : NukeBuild
 
             // Build the necessary packages 
             foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
-			    if ( project.Deploy == CustomNukeConfigEnum.Nuget ) {
+			    if ( project.Deploy == CustomNukeDeployMethod.Nuget ) {
 				    string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
 				    DotNetPack(_ => _
 				                    .SetProject(Solution.GetProject(fullName))
@@ -266,9 +277,12 @@ class Build : NukeBuild
 	       // Update the Versions file with the latest
 	       string lastVersion = _gitProcessor.ReadVersionsFile(true);
            _gitProcessor.CommitSemVersionChanges();
-       
 
-	       Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
+
+           // Now process Copy Outputs.
+           PublishCopiedFolders();
+
+           Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
        });
 
 
@@ -371,8 +385,6 @@ class Build : NukeBuild
 	    if (InvokedTargets.Contains(PublishProd)) IsProductionBuild = true;
     }
 
-
-
     
 
     /// <summary>
@@ -381,16 +393,52 @@ class Build : NukeBuild
     /// <returns></returns>
     public bool PublishCopiedFolders () {
 	    foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
-		    if ( project.Deploy == CustomNukeConfigEnum.Copy ) {
-			    // Destination
-			    AbsolutePath deploy = (AbsolutePath) CustomNukeSolutionConfig.DeployRoot / project.Name / ("Ver" + _gitProcessor.GitVersion.SemVer);
+            // Calculate the name of the Version folder
+		    string versionFolder = "";
+		    if ( project.Deploy != CustomNukeDeployMethod.Copy ) continue;
 
-			    // Source
-			    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
-
-			    Utility.CopyEntireDirectory(src, deploy);
-                Logger.Info("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
+		    if ( CustomNukeSolutionConfig.DeployToVersionedFolder ) {
+			    if ( CustomNukeSolutionConfig.DeployFolderUsesSemVer )
+				    versionFolder = "Ver" + _gitProcessor.SemVersion;
+			    else
+				    versionFolder = "Ver" + _gitProcessor.Version;
 		    }
+
+            // Calculate App Name Path
+            string appPath = project.Name;
+            if ( CustomNukeSolutionConfig.DeployToAssemblyFolders ) {
+	            Project nukeProject = GetSolutionProject(project);
+	            ControlFlow.Assert(nukeProject != null, "Unable to find the Nuke Project for: " + project.Name);
+
+	            // Load the project file to get the Assembly name.  If not found, then its the projectName
+	            XDocument doc = XDocument.Load(nukeProject.Path);
+	            XElement element = doc.XPathSelectElement("//PropertyGroup/AssemblyName");
+	            if ( element != null ) 
+                    if ( !String.IsNullOrEmpty(element.Value) ) 
+                        if ( !element.Value.Contains('.') )  
+	                        appPath = element.Value; 
+						else {
+				            string [] appParts = element.Value.Split('.',StringSplitOptions.RemoveEmptyEntries);
+				            appPath = string.Join(Path.DirectorySeparatorChar,appParts);
+				            appPath = appPath + Path.DirectorySeparatorChar + element.Value;
+                        }
+            }
+
+            // Destination
+		    AbsolutePath root;
+		    if ( Configuration == "Release" )
+			    root = (AbsolutePath) CustomNukeSolutionConfig.DeployProdRoot;
+		    else
+			    root = (AbsolutePath) CustomNukeSolutionConfig.DeployTestRoot;
+
+            // Build Full Path
+		    AbsolutePath deploy = (AbsolutePath) root / appPath / versionFolder;
+
+		    // Source
+		    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
+
+		    Utility.CopyEntireDirectory(src, deploy);
+            Logger.Info("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
 
 	    }
 	    return true;

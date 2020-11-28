@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -14,7 +15,8 @@ using Nuke.Common.Tooling;
 using NukeConf;
 using static Nuke.Common.IO.FileSystemTasks;
 using System.Xml.XPath;
-
+using Nuke.Common.CI;
+using Console = Colorful.Console;
 
 namespace SlugNuke
 {
@@ -84,6 +86,7 @@ namespace SlugNuke
 		/// </summary>
 		/// <returns></returns>
 		private async Task<bool> ValidateNukeSolutionBuild () {
+			bool updates = false;
 			AbsolutePath nsbFile = RootDirectory / "nukeSolutionBuild.conf";
 
 			CustomNukeSolutionConfig customNukeSolutionConfig;
@@ -92,10 +95,37 @@ namespace SlugNuke
 			}
 			else {
 				customNukeSolutionConfig = new CustomNukeSolutionConfig();
+				customNukeSolutionConfig.DeployToVersionedFolder = true;
 			}
 
 
-			bool updates = false;
+			// Ensure Deploy Roots have values.
+
+			for ( int i = 0; i < 2; i++ ) {
+				string name;
+				Configuration config;
+
+				if ( i == 0 ) {
+					name = "Production";
+					config = Configuration.Release;
+				}
+				else {
+					name = "Test";
+					config = Configuration.Debug;
+				}
+
+				if ( !customNukeSolutionConfig.IsRootFolderSpecified(config) ) {
+					Console.WriteLine("Enter the root deployment folder for {0} [{1}]", Color.Yellow, name, config);
+					string answer = Console.ReadLine();
+					if ( i == 0 )
+						customNukeSolutionConfig.DeployProdRoot = answer;
+					else
+						customNukeSolutionConfig.DeployTestRoot = answer;
+					updates = true;
+				}
+			}
+
+
 			bool updateProjectAdd = false;
 
 			// Now go thru the projects and update the config
@@ -106,9 +136,9 @@ namespace SlugNuke
 					nukeConfProject = new NukeConf.Project() {Name = project.Name};
 					nukeConfProject.Framework = project.Framework;
 					if ( project.IsTestProject )
-						nukeConfProject.Deploy = CustomNukeConfigEnum.None;
+						nukeConfProject.Deploy = CustomNukeDeployMethod.None;
 					else
-						nukeConfProject.Deploy = CustomNukeConfigEnum.Copy;
+						nukeConfProject.Deploy = CustomNukeDeployMethod.Copy;
 
 					updates = true;
 					customNukeSolutionConfig.Projects.Add(nukeConfProject);
@@ -123,13 +153,11 @@ namespace SlugNuke
 				
 			}
 
-			if ( updates ) {
-				string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());
-				File.WriteAllText(nsbFile,json);
-				if ( updateProjectAdd ) { Logger.Warn("The file: {0} was updated.  One ore more projects were added.  Ensure they have the correct Deploy setting.", nsbFile); }
-			}
+			// We now always write the config file at the end of Setup.  This ensure we get any new properties.
+			string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());
+			File.WriteAllText(nsbFile,json);
+			if ( updateProjectAdd ) { Logger.Warn("The file: {0} was updated.  One ore more projects were added.  Ensure they have the correct Deploy setting.", nsbFile); }
 			
-
 			return true;
 		}
 

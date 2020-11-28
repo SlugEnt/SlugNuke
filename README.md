@@ -26,6 +26,15 @@ Test projects are identified by look for projects that start or end in Test.
 
 After the app has run you will need to open the solution and reconnect the test projects to the code projects, since they were possibly moved.
 
+## Arguments
+There are a number of arguments that you will likely use:
+ - Compile :  Compiles all projects in the solution
+ - Publish :  Runs the full cycle for all projects of the solution.  This is considered a Test publish, meaning versions are tagged with SemVer versions.This is typically the Compile, Test, Pack and Publish steps.  
+ - PublishProd :  Same as publish, but this is considered the Production publish, so just MajorMinorPatch versions.
+ - Configuration:  Debug | Release.  If not specified, then if this is being built locally it will default to Debug.  Also PublishProd will default this to Release, unless it was specified on command line.
+ - SkipNuget : Will skip the actual deployment to a Nuget Repository.  
+ - Skip : Will skip all targets not explicitly delared on command line.
+ 
 ## Assumptions
 This app makes assumptions about the development cycle.  Basically, all Production is committed to master.  All development occurs on Develop, Feature, Fix branches.  You test on those branches, optionally pushing these to Nuget as alpha packages.  Eventually the build is good and you are ready to move to production.  Final commits and builds are made, the development branch is deleted.  
 
