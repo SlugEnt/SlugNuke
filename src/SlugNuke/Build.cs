@@ -89,7 +89,7 @@ public partial class Build : NukeBuild
 	    // Loads the Solution specific configuration information for building.
 	    string json = File.ReadAllText(RootDirectory / "NukeSolutionBuild.Conf");
 	    CustomNukeSolutionConfig = JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, CustomNukeSolutionConfig.SerializerOptions());
-	    ControlFlow.Assert(CustomNukeSolutionConfig.IsRootFolderSpecified(Configuration),"The DeployProdRoot or DeployTestRoot in the NukeSolutionBuild.Conf do not contain valid entries.  Run SlugNuke --Target Setup to fix.");
+	    ControlFlow.Assert(CustomNukeSolutionConfig.CheckRootFolders(),"The DeployProdRoot or DeployTestRoot in the NukeSolutionBuild.Conf do not contain valid entries.  Run SlugNuke --Target Setup to fix.");
 
 	    // Setup the GitProcessor
 	    _gitProcessor = new GitProcessor(RootDirectory);
@@ -100,6 +100,13 @@ public partial class Build : NukeBuild
 	    // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
 	    _gitProcessor.GetCurrentBranch();
 	    _gitProcessor.IsUncommittedChanges();
+
+	    if ( _gitProcessor.IsCurrentBranchMainBranch() && this.InvokedTargets.Contains(Publish) ) {
+		    string msg =
+			    @"The current branch is the main branch, yet you are running a Test Publish command.  This is unsupported as it will cause version issues in Git.  " +
+			    "Either create a branch off master to put the changes into (this is probably what you want) OR change Target command to PublishProd.";
+		    ControlFlow.Assert(1 ==0, msg);
+	    }
     }
 
 
@@ -171,24 +178,25 @@ public partial class Build : NukeBuild
         .DependsOn(Restore)
         .Executes(() =>
         {
-	        // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
-	        // This ensure we do not build the package with -alpha suffix.
-	        // For non master build (Publish) we will carry out this step AFTER the Packing.
-	        if (IsProductionBuild)
+	        string assemblyVer = _gitProcessor.GitVersion.AssemblySemVer;
+	        string fileVer = _gitProcessor.GitVersion.AssemblySemFileVer;
+	        
+            // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
+            // This ensure we do not build the package with -alpha suffix.
+            // For non master build (Publish) we will carry out this step AFTER the Packing.
+            if (IsProductionBuild)
 	        {
-                _gitProcessor.MainVersionCheckout();
-		        _gitProcessor.Fetch_GitVersion();
+                _gitProcessor.MainVersionCheckoutSimple();
 	        }
+            else { _gitProcessor.GetNextVersion();}
+
+            string infoVer = _gitProcessor.SemVersion;
 
             Logger.Normal("Source = " + SourceDirectory.ToString());
 	        Logger.Normal("Tests:  " + TestsDirectory.ToString());
 	        Logger.Normal("Configuration: " + Configuration.ToString());
             Logger.Normal("Solution = " + Solution.Name);
             Logger.Normal("GitVer.Inform = " + _gitProcessor.GitVersion.InformationalVersion);
-
-            string assemblyVer = _gitProcessor.GitVersion.AssemblySemVer;
-            string fileVer = _gitProcessor.GitVersion.AssemblySemFileVer;
-            string infoVer = _gitProcessor.GitVersion.InformationalVersion;
 
             
             DotNetBuild(s => s
@@ -199,21 +207,34 @@ public partial class Build : NukeBuild
                 .SetInformationalVersion(infoVer)
                 .SetVerbosity(DotNetVerbosity.Minimal)
                 .EnableNoRestore());
-
-            // Finalize the Master Commit
-            if (IsProductionBuild)
-				_gitProcessor.CommitMainVersionChanges();
         });
 
+
+    /// <summary>
+    /// Commits changes to Git after Compile and Test
+    /// </summary>
+    Target GitCommit => _ => _
+                              .After(Test)
+                              .After(Compile)
+                              .Executes(() => {
+	                              if ( IsProductionBuild ) _gitProcessor.CommitMainVersionChanges();
+                                  else
+	                              {
+		                              // Update the Versions file with the latest
+		                              //_gitProcessor.GetNextVersion();
+		                              _gitProcessor.CommitSemVersionChanges();
+	                              }
+                              });
 
 
     /// <summary>
     /// Prep for sending to a Nuget style repo
     /// </summary>
     Target Pack => _ => _
-       // .DependsOn(PreProcessing)
         .DependsOn(Compile)
 		.DependsOn(Test)
+        .DependsOn (GitCommit)
+        
 
 	    .Executes(() =>
 	    {
@@ -274,15 +295,11 @@ public partial class Build : NukeBuild
 			       });
 	       }
 
-	       // Update the Versions file with the latest
-	       string lastVersion = _gitProcessor.ReadVersionsFile(true);
-           _gitProcessor.CommitSemVersionChanges();
-
 
            // Now process Copy Outputs.
            PublishCopiedFolders();
 
-           Logger.Success("Version: " + lastVersion + " fully committed and deployed to target location.");
+           Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
        });
 
 
@@ -363,13 +380,6 @@ public partial class Build : NukeBuild
             });
 
 
-    Target Temp => _ => _ 
-                        //.DependsOn(PreProcessing)
-	    .Executes(() => {
-	    PublishCopiedFolders();
-    });
-
-
     /// <summary>
     /// We need to see if this is a publishmaster target.  If so, set the flag.
     /// </summary>
@@ -438,7 +448,7 @@ public partial class Build : NukeBuild
 		    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
 
 		    Utility.CopyEntireDirectory(src, deploy);
-            Logger.Info("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
+            Logger.Success("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
 
 	    }
 	    return true;

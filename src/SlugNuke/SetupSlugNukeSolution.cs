@@ -97,36 +97,10 @@ namespace SlugNuke
 				customNukeSolutionConfig = new CustomNukeSolutionConfig();
 				customNukeSolutionConfig.DeployToVersionedFolder = true;
 			}
-
-
-			// Ensure Deploy Roots have values.
-
-			for ( int i = 0; i < 2; i++ ) {
-				string name;
-				Configuration config;
-
-				if ( i == 0 ) {
-					name = "Production";
-					config = Configuration.Release;
-				}
-				else {
-					name = "Test";
-					config = Configuration.Debug;
-				}
-
-				if ( !customNukeSolutionConfig.IsRootFolderSpecified(config) ) {
-					Console.WriteLine("Enter the root deployment folder for {0} [{1}]", Color.Yellow, name, config);
-					string answer = Console.ReadLine();
-					if ( i == 0 )
-						customNukeSolutionConfig.DeployProdRoot = answer;
-					else
-						customNukeSolutionConfig.DeployTestRoot = answer;
-					updates = true;
-				}
-			}
-
+			
 
 			bool updateProjectAdd = false;
+			bool hasCopyDeployMethod = false;
 
 			// Now go thru the projects and update the config
 			foreach (VisualStudioProject project in Projects) {
@@ -149,9 +123,39 @@ namespace SlugNuke
 						nukeConfProject.Framework = project.Framework;
 						updates = true;
 					}
+
+					if ( nukeConfProject.Deploy == CustomNukeDeployMethod.Copy ) hasCopyDeployMethod = true;
 				}
-				
 			}
+
+
+			// Ensure Deploy Roots have values if at least one of the projects has a deploy method of Copy
+			if ( hasCopyDeployMethod ) {
+				for ( int i = 0; i < 2; i++ ) {
+					string name;
+					Configuration config;
+
+					if ( i == 0 ) {
+						name = "Production";
+						config = Configuration.Release;
+					}
+					else {
+						name = "Test";
+						config = Configuration.Debug;
+					}
+
+					if ( !customNukeSolutionConfig.IsRootFolderSpecified(config) ) {
+						Console.WriteLine("Enter the root deployment folder for {0} [{1}]", Color.Yellow, name, config);
+						string answer = Console.ReadLine();
+						if ( i == 0 )
+							customNukeSolutionConfig.DeployProdRoot = answer;
+						else
+							customNukeSolutionConfig.DeployTestRoot = answer;
+						updates = true;
+					}
+				}
+			}
+
 
 			// We now always write the config file at the end of Setup.  This ensure we get any new properties.
 			string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());

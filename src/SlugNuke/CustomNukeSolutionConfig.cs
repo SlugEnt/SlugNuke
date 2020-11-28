@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -102,6 +103,44 @@ namespace NukeConf {
 			return true;
 		} 
 
+
+		/// <summary>
+		/// Checks to ensure that if any of the projects have a Deploy method of Copy that the DeployRoot folders are specified.
+		/// </summary>
+		/// <returns></returns>
+		public bool CheckRootFolders () {
+			bool hasCopyMethod = false;
+
+			foreach ( Project project in Projects ) {
+				if ( project.Deploy == CustomNukeDeployMethod.Copy ) hasCopyMethod = true;
+			}
+
+			// If no projects require a root folder then it is ok.
+			if ( !hasCopyMethod ) return true;
+
+			// Ensure Deploy Roots have values if at least one of the projects has a deploy method of Copy
+			for (int i = 0; i< 2; i++ ) {
+				string name;
+				Configuration config;
+
+				if (i == 0 ) {
+					name = "Production";
+					config = Configuration.Release;
+				}
+				else {
+					name = "Test";
+					config = Configuration.Debug;
+				}
+
+				if (!IsRootFolderSpecified(config))
+				{
+					Console.WriteLine("There are 1 or more projects with a Deploy method of Copy, but no Deploy Root folders have been specified.");
+					return false;
+				}
+			}
+
+			return true;
+		}
 	}
 
 
