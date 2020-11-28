@@ -77,7 +77,7 @@ public partial class Build : NukeBuild
     /// </summary>
     private void PreProcessing () {
 	    if ( Configuration == null ) {
-		    if (this.InvokedTargets.Contains(PublishProd)) 
+		    if (InvokedTargets.Contains(PublishProd)) 
 			    Configuration = Configuration.Release; 
             else
 				Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
@@ -101,7 +101,7 @@ public partial class Build : NukeBuild
 	    _gitProcessor.GetCurrentBranch();
 	    _gitProcessor.IsUncommittedChanges();
 
-	    if ( _gitProcessor.IsCurrentBranchMainBranch() && this.InvokedTargets.Contains(Publish) ) {
+	    if ( _gitProcessor.IsCurrentBranchMainBranch() && InvokedTargets.Contains(Publish) ) {
 		    string msg =
 			    @"The current branch is the main branch, yet you are running a Test Publish command.  This is unsupported as it will cause version issues in Git.  " +
 			    "Either create a branch off master to put the changes into (this is probably what you want) OR change Target command to PublishProd.";
@@ -184,11 +184,11 @@ public partial class Build : NukeBuild
             // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
             // This ensure we do not build the package with -alpha suffix.
             // For non master build (Publish) we will carry out this step AFTER the Packing.
-            if (IsProductionBuild)
+            //if (IsProductionBuild)
 	        {
-                _gitProcessor.MainVersionCheckoutSimple();
+                _gitProcessor.MainVersionCheckoutSimple(IsProductionBuild);
 	        }
-            else { _gitProcessor.GetNextVersion();}
+            //else { _gitProcessor.GetNextVersion();}
 
             string infoVer = _gitProcessor.SemVersion;
 
@@ -245,15 +245,17 @@ public partial class Build : NukeBuild
             foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
 			    if ( project.Deploy == CustomNukeDeployMethod.Nuget ) {
 				    string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
-				    DotNetPack(_ => _
-				                    .SetProject(Solution.GetProject(fullName))
-				                    .SetOutputDirectory(OutputDirectory)
-				                    .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
-				                    .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
-				                    .SetInformationalVersion(_gitProcessor.GitVersion.InformationalVersion)
-				                    .SetVersion(_gitProcessor.GitVersion.NuGetVersionV2));
+				    DotNetPack(_ => _.SetProject(Solution.GetProject(fullName))
+				                     .SetOutputDirectory(OutputDirectory)
+				                     .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
+				                     .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
+				                    // .SetInformationalVersion(_gitProcessor.GitVersion.InformationalVersion)
+				                     .SetInformationalVersion(_gitProcessor.InformationalVersion)
+				                     .SetVersion(_gitProcessor.SemVersionNugetCompatible));
 
-                }
+				    //.SetVersion(_gitProcessor.GitVersion.NuGetVersionV2));
+
+			    }
 
             }
 	    });
@@ -409,7 +411,7 @@ public partial class Build : NukeBuild
 
 		    if ( CustomNukeSolutionConfig.DeployToVersionedFolder ) {
 			    if ( CustomNukeSolutionConfig.DeployFolderUsesSemVer )
-				    versionFolder = "Ver" + _gitProcessor.SemVersion;
+				    versionFolder = "Ver" + _gitProcessor.SemVersionNugetCompatible;
 			    else
 				    versionFolder = "Ver" + _gitProcessor.Version;
 		    }

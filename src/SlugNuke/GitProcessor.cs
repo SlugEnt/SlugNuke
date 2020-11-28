@@ -19,9 +19,6 @@ namespace SlugNuke
 	///  Processes all Git Related stuff 
 	/// </summary>
 	class GitProcessor {
-		const string VERSIONS_FILENAME = "versions.txt";
-		const int VERSION_HISTORY_TO_KEEP = 4;
-		const int VERSION_HISTORY_LIMIT = 7;
 		const string COMMIT_MARKER = "|^|";
 		const string GIT_COMMAND_MARKER = "|";
 
@@ -31,9 +28,11 @@ namespace SlugNuke
 		/// <summary>
 		/// The Branch that the repository is currently on
 		/// </summary>
-		public string CurrentBranch { get; set; }
-		public string Version { get; set; }
-		public string SemVersion { get; set; }
+		public string CurrentBranch { get; private set; }
+		public string Version { get; private set; }
+		public string SemVersion { get; private set; }
+		public string SemVersionNugetCompatible { get; private set; }
+		public string InformationalVersion { get; private set; }
 		public string GitTagName { get; private set; }
 		public string GitTagDesc { get; private set; }
 
@@ -156,10 +155,10 @@ namespace SlugNuke
 		/// </summary>
 		public void CommitSemVersionChanges () {
 			try {
+				if ( WasVersionPreviouslyCommitted ) return;
 				string commitErrStart = "CommitSemVersionChanges:::  Git Command Failed:  git ";
 				GitTagName = "Ver" + SemVersion;
 				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + SemVersion;
-				List<Output> gitOutput;
 				string gitArgs = "";
 
 				gitArgs = string.Format("tag -a {0} -m \"{1}\"", GitTagName, GitTagDesc);
@@ -178,27 +177,33 @@ namespace SlugNuke
 		}
 
 
-		public void MainVersionCheckoutSimple () {
+		public void MainVersionCheckoutSimple (bool isMainBranchBuild) {
 			string gitArgs;
 			string commitErrStart = "MainVersionCheckout:::  Git Command Failed:  git ";
 
 			List<Output> gitOutput;
 
 			try {
-				GetNextVersion();
+				GetNextVersion(isMainBranchBuild);
+
 				// First we need to checkout master and merge it.
 				if ( !IsCurrentBranchMainBranch() ) {
-					SemVersion = Version;
+					if ( isMainBranchBuild ) {
+				//		SemVersion = Version;
+						GitTagName = "Ver" + Version;
+					}
+					else
+						GitTagName = "Ver" + SemVersion;
 				}
 
-				GitTagName = "Ver" + Version;
+				//GitTagName = "Ver" + Version;
 				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + Version;
 
 
 				// See if the Tag exists already, if so we will get errors later, better to stop now.  
 				gitArgs = "describe --tags --abbrev=0";
 				ControlFlow.Assert(ExecuteGit(gitArgs, out gitOutput) == true, commitErrStart + gitArgs);
-				string latestVer = "";
+				
 
 				if (gitOutput.Count > 0 && gitOutput[0].Text == GitTagName)
 				{
@@ -211,6 +216,7 @@ namespace SlugNuke
 				throw e;
 			}
 		}
+
 
 
 
@@ -331,9 +337,54 @@ namespace SlugNuke
 		}
 
 
-		public void GetNextVersion () {
+		public void GetNextVersion (bool isMainBranchBuild) {
 			Version = GitVersion.MajorMinorPatch;
 			SemVersion = GitVersion.SemVer;
+
+			/* GitVersion Is not working correctly.
+			InformationalVersion = GitVersion.InformationalVersion;
+			SemVersionNugetCompatible = GitVersion.NuGetVersionV2;
+
+			return;
+			*/
+
+			if ( isMainBranchBuild ) {
+				SemVersion = Version;
+				SemVersionNugetCompatible = Version;
+				InformationalVersion = Version + "+" + GitVersion.Sha.Substring(0, 7);
+				return;
+			}
+
+
+			string label = GitVersion.PreReleaseLabel;
+			int commitNumber = GetBranchCommitCount();
+			//int commitNumber = Int32.Parse(GitVersion.CommitsSinceVersionSource);
+			//commitNumber++;
+			SemVersion = Version + "-" + label + "." + commitNumber;
+			
+			// Calculate Nuget Version
+			string zeros = "";
+			if ( commitNumber > 99 ) zeros = "0";
+			else if ( commitNumber > 9 )
+				zeros = "00";
+			else  zeros = "000";
+			SemVersionNugetCompatible = Version + "-" + label +  zeros + commitNumber;
+
+			InformationalVersion = SemVersion + "+" + GitVersion.Sha.Substring(0, 7);
+		}
+
+
+		/// <summary>
+		/// Returns the number of commits on the current branch.
+		/// </summary>
+		/// <returns></returns>
+		public int GetBranchCommitCount () {
+			string gitArgs = string.Format("reflog show --no-abbrev {0}", CurrentBranch);
+			if (ExecuteGit(gitArgs, out List<Output> gitOutput)) {
+				return gitOutput.Count - 1;
+			}
+			ControlFlow.Assert(1 == 0, "Unable to determine how many commits are on current branch.");
+			return 0;
 		}
 
 

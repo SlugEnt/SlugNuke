@@ -120,15 +120,12 @@ namespace NukeConf {
 
 			// Ensure Deploy Roots have values if at least one of the projects has a deploy method of Copy
 			for (int i = 0; i< 2; i++ ) {
-				string name;
 				Configuration config;
 
 				if (i == 0 ) {
-					name = "Production";
 					config = Configuration.Release;
 				}
 				else {
-					name = "Test";
 					config = Configuration.Debug;
 				}
 

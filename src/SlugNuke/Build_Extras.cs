@@ -14,7 +14,7 @@ using Nuke.Common.ProjectModel;
 		/// <returns></returns>
 		public Project GetSolutionProject (NukeConf.Project confProject)
 		{
-			string fullName = this.SourceDirectory / confProject.Name / confProject.Name + ".csproj";
+			string fullName = SourceDirectory / confProject.Name / confProject.Name + ".csproj";
 			return Solution.GetProject(fullName);
 		}
 	}
