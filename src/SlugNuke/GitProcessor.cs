@@ -301,8 +301,12 @@ namespace SlugNuke
 					if ( !ExecuteGit_NoOutput(gitArgs) ) bErrorIsExpected = true;
 
 					gitArgs = "branch -d " + CurrentBranch;
-					if ( !ExecuteGit_NoOutput(gitArgs) && !bErrorIsExpected ) 
-							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+					if ( !ExecuteGit_NoOutput(gitArgs) && !bErrorIsExpected ) {
+						ControlFlow.AssertWarn(1 ==0,"Unable to delete the local branch [" + CurrentBranch +  "see Git Errors below.  Will continue to process since this is not a fatal error.  You may need to perform branch cleanup manually."); 
+						PrintGitHistory();
+						// We will probably fail the next error too...
+						bErrorIsExpected = true;
+					}
 
 					gitArgs = "push origin --delete " + CurrentBranch;
 					if ( !ExecuteGit_NoOutput(gitArgs) ) 

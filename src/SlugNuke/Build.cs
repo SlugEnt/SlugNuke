@@ -185,7 +185,7 @@ public partial class Build : NukeBuild
             // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
             // This ensure we do not build the package with -alpha suffix.
             // For non master build (Publish) we will carry out this step AFTER the Packing.
-            _gitProcessor.MainVersionCheckoutSimple(IsProductionBuild);
+            _gitProcessor.GetNextVersionAndTags(IsProductionBuild);
 
             string infoVer = _gitProcessor.SemVersion;
 
