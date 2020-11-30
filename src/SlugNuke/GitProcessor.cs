@@ -213,7 +213,7 @@ namespace SlugNuke
 		/// <param name="isMainBranchBuild"></param>
 		public void GetNextVersionAndTags (bool isMainBranchBuild) {
 			string gitArgs;
-			string commitErrStart = "MainVersionCheckout:::  Git Command Failed:  git ";
+			string commitErrStart = "GetNextVersionAndTags:::  Git Command Failed:  git ";
 
 			List<Output> gitOutput;
 
@@ -235,7 +235,14 @@ namespace SlugNuke
 
 				// See if the Tag exists already, if so we will get errors later, better to stop now.  
 				gitArgs = "describe --tags --abbrev=0";
-				ControlFlow.Assert(ExecuteGit(gitArgs, out gitOutput) == true, commitErrStart + gitArgs);
+
+				if ( !ExecuteGit(gitArgs, out gitOutput) ) {
+					if ( gitOutput.Count > 0 ) {
+						if ( gitOutput [0].Text.Contains("fatal: No names found") )
+							return;
+						throw new ApplicationException(commitErrStart + gitArgs);
+					}
+				}
 
 				if (gitOutput.Count > 0 && gitOutput[0].Text == GitTagName)
 				{

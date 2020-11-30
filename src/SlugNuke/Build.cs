@@ -69,7 +69,7 @@ public partial class Build : NukeBuild
 
     bool IsProductionBuild = false;
 
-
+    List<PublishResult> PublishResults = new List<PublishResult>();
  
 
     /// <summary>
@@ -242,16 +242,19 @@ public partial class Build : NukeBuild
             foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
 			    if ( project.Deploy == CustomNukeDeployMethod.Nuget ) {
 				    string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
-				    DotNetPack(_ => _.SetProject(Solution.GetProject(fullName))
+				    IReadOnlyCollection<Output> output = DotNetPack(_ => _.SetProject(Solution.GetProject(fullName))
 				                     .SetOutputDirectory(OutputDirectory)
+				                     .SetIncludeSymbols(true)
 				                     .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
 				                     .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
-				                    // .SetInformationalVersion(_gitProcessor.GitVersion.InformationalVersion)
 				                     .SetInformationalVersion(_gitProcessor.InformationalVersion)
 				                     .SetVersion(_gitProcessor.SemVersionNugetCompatible));
-
-				    //.SetVersion(_gitProcessor.GitVersion.NuGetVersionV2));
-
+				    foreach ( Output item in output ) {
+					    if ( item.Text.Contains("Successfully created package") ) {
+						    string file = item.Text.Substring(item.Text.IndexOf("'") + 1);
+						    PublishResults.Add(new PublishResult(project.Name, project.Deploy.ToString(),file));
+					    }
+				    }
 			    }
 
             }
@@ -289,13 +292,14 @@ public partial class Build : NukeBuild
                                                    "From the Git Version Tag history, this was not an expected result.  Please check the Nuget Repo, and Git to determine if this was expected");
 							       }
 						       }
+                               else PublishResults.Add(new PublishResult("","Nuget",x));
 					       }
 				       }
 			       });
 	       }
 
 
-           // Now process Copy Outputs.
+	       // Now process Copy Outputs.
            PublishCopiedFolders();
 
            Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
@@ -391,12 +395,24 @@ public partial class Build : NukeBuild
         // We need to do pre-processing if this is not the Setup target.
         if (!InvokedTargets.Contains(Setup))
 			PreProcessing();
-
-
-	    
     }
 
-    
+
+    protected override void OnBuildFinished () {
+        Logger.Info("Version Information");
+        Logger.Info("   Overall Version #:  {0}", _gitProcessor.Version);
+        Logger.Info("   SemVer Version #:  {0}", _gitProcessor.SemVersion);
+        Console.WriteLine();
+        Console.WriteLine("Project Summary");
+        Console.WriteLine();
+
+        foreach (PublishResult result in PublishResults) {
+	        Logger.Info("  {0,-25}  |  {1}{3}       {2}", result.NameOfProject, result.DeployMethod, result.DeployName, Environment.NewLine);
+        }
+
+	    base.OnBuildFinished();
+    }
+
 
     /// <summary>
     /// Publishes projects that are deployed to a provided folder location.
@@ -449,6 +465,8 @@ public partial class Build : NukeBuild
 		    AbsolutePath src = (AbsolutePath) SourceDirectory / project.Name / "bin" / Configuration / project.Framework;
 
 		    Utility.CopyEntireDirectory(src, deploy);
+            
+            PublishResults.Add(new PublishResult(project.Name,project.Deploy.ToString(),deploy));
             Logger.Success("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
 
 	    }
