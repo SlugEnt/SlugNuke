@@ -9,6 +9,12 @@ A customized (Opinionated) Nuke Build app that provides the following capabiliti
 - Can automatically "Move a branch" to master, make all the commits and push at same time
 
 
+## Important Information
+- Any project that starts with the word TEST or ends with the word TEST (case insensitive) will be considered a Unit Test project and moved to the /tests root and classified as a test project.
+- Any time you add a new project to the solution you need to re-run setup.
+- If you remove a project from a solution you need to manually remove it from the nukeSolutionBuild.conf file.
+- Use the [ExcludeFromCodeCoverage] attribute to exclude classes or methods from Code Coverage Results.
+
 ## Setup
 The setup target will take an existing solution target and convert it to the proper format for this build process.  It will perform the following:
 

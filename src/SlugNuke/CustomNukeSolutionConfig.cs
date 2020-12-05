@@ -147,5 +147,7 @@ namespace NukeConf {
 		public CustomNukeDeployMethod Deploy { get; set; }
 
 		public string Framework { get; set; }
+
+		public bool IsTestProject { get; set; }
 	}
 }

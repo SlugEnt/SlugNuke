@@ -4,9 +4,12 @@ using Nuke.Common.Execution;
 using Nuke.Common.IO;
 using Nuke.Common.ProjectModel;
 using Nuke.Common.Tooling;
+using Nuke.Common.Tools.DotCover;
 using Nuke.Common.Tools.DotNet;
 using Nuke.Common.Tools.EntityFramework;
 using Nuke.Common.Tools.GitVersion;
+using Nuke.Common.Tools.ReportGenerator;
+using Nuke.Common.Utilities;
 using Nuke.Common.Utilities.Collections;
 using NukeConf;
 using SlugNuke;
@@ -16,13 +19,13 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Xml.XPath;
 using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
+using static Nuke.Common.Tools.DotCover.DotCoverTasks;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
+using static Nuke.Common.Tools.ReportGenerator.ReportGeneratorTasks;
 using Project = Nuke.Common.ProjectModel.Project;
 
 [assembly: InternalsVisibleTo("Test_SlugNuke")]
@@ -168,6 +171,7 @@ public partial class Build : NukeBuild
 
 
     Target Restore => _ => _
+        .DependsOn(Clean)
         .Executes(() =>
         {
             DotNetRestore(s => s
@@ -348,39 +352,117 @@ public partial class Build : NukeBuild
        });
 
 
+    Target Test => _ => _
+        .Description("Runs all unit tests.")
+        .DependsOn(Compile)
+        .Executes(() => {
+	        foreach (NukeConf.Project nukeConfProject in CustomNukeSolutionConfig.Projects)
+	        {
+		        if ( nukeConfProject.IsTestProject ) {
+			        string fullName = TestsDirectory / nukeConfProject.Name / nukeConfProject.Name + ".csproj";
+			        Project project = Solution.GetProject(fullName);
+			        ControlFlow.Assert(project != null,
+			                           "Unable to find the project named: " +
+			                           nukeConfProject.Name +
+			                           " in the Nuke Solution.  May need to re-run SlugNuke Setup");
+			        AbsolutePath CoveragePath = OutputDirectory / ("Coverage_" + project.Name);
+			        DotNetTest(t => t.SetProjectFile(project.Directory)
+			                         .SetConfiguration(Configuration)
+			                         .EnableNoBuild()
+			                         .EnableNoRestore()
+			                         .SetProcessLogOutput(true)
+			                         .SetProcessArgumentConfigurator(arguments => arguments.Add("/p:CollectCoverage={0}", true)
+			                                                                               .Add("/p:CoverletOutput={0}/", CoveragePath)
+			                                                                               .Add("/p:CoverletOutputFormat={0}", "cobertura")
+			                                                                               .Add("/p:Threshold={0}", 0)
+			                                                                               .Add("/p:SkipAutoProps={0}",true)
+			                                                                               .Add("/p:ExcludeByAttribute={0}","\"Obsolete%2cGeneratedCodeAttribute%2cCompilerGeneratedAttribute\"")
+			                                                                               .Add("/p:UseSourceLink={0}", true))
+			                            .SetResultsDirectory(OutputDirectory / "Tests"));
 
-    /// <summary>
-    /// Run the unit tests
-    /// </summary>
-	Target Test => _ => _
-	        .Description("Runs all unit tests.")
-            .DependsOn(Compile)
-            .Executes(() =>
-            {
-                foreach ( Project project in Solution.AllProjects ) {
-                    if ( project.Path.ToString().StartsWith(TestsDirectory) ) {
-                        string projectTestDirectory = Path.GetDirectoryName(project.Path.ToString());
-                        string dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
+			        ReportGenerator(r => r.SetTargetDirectory(CoveragePath)
+			                              .SetProcessWorkingDirectory(CoveragePath)
+			                              .SetReportTypes(ReportTypes.HtmlInline, ReportTypes.Badges)
+			                              .SetReports("coverage.cobertura.xml")
+			                              .SetProcessToolPath("reportgenerator"));
+		        }
+	        }
 
-                        // We allow all tests to run, instead of failing at first failure.
-                        IProcess dotnetTest = ProcessTasks.StartProcess(dotnetPath, "test " + projectTestDirectory, logOutput: true);
-                        dotnetTest.AssertWaitForExit();
-                        IReadOnlyCollection<Output> output = dotnetTest.Output;
+		});
 
-                        // Write the last line of output in green or red depending on outcome
-                        string testResults = "";
-                        if ( output.Count > 0 ) { testResults = output.Last().Text; }
+	                        /*
+	                        /// <summary>
+	                        /// Run the unit tests
+	                        /// </summary>
+	                        Target Test => _ => _
+	                                .Description("Runs all unit tests.")
+	                                .DependsOn(Compile)
+	                                .Executes(() =>
+	                                {
+	                                    foreach ( Project project in Solution.AllProjects ) {
+	                                        if ( project.Path.ToString().StartsWith(TestsDirectory) ) {
+	                                            string projectTestDirectory = Path.GetDirectoryName(project.Path.ToString());
+	                                            string dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
+	            
+	                                            // We allow all tests to run, instead of failing at first failure.
+	                                            IProcess dotnetTest = ProcessTasks.StartProcess(dotnetPath, "test " + projectTestDirectory, logOutput: true);
+	                                            dotnetTest.AssertWaitForExit();
+	                                            IReadOnlyCollection<Output> output = dotnetTest.Output;
+	            
+	                                            // Write the last line of output in green or red depending on outcome
+	                                            string testResults = "";
+	                                            if ( output.Count > 0 ) { testResults = output.Last().Text; }
+	            
+	                                            if ( dotnetTest.ExitCode != 0 ) {
+	                                                Logger.Warn(testResults);
+	                                                ControlFlow.Assert(dotnetTest.ExitCode == 0, "Unit Tests Failed");
+	                                            }
+	                                            else 
+	                                                Logger.Success(testResults);
+	            
+	                                        }
+	                                    }
+	                                });
+	            
+	                        */
 
-                        if ( dotnetTest.ExitCode != 0 ) {
-                            Logger.Warn(testResults);
-                            ControlFlow.Assert(dotnetTest.ExitCode == 0, "Unit Tests Failed");
-                        }
-                        else 
-                            Logger.Success(testResults);
+	                        Target Coverage => _ => _
+	                                                .DependsOn(Compile)
+	                                                .Executes(() =>
+	                                                {
+		                                                var testProjects = GlobFiles(RootDirectory / "test", "*.csproj").ToList();
+		                                                for (var i = 0; i < testProjects.Count; i++)
+		                                                {
+			                                                var testProject = testProjects[i];
+			                                                var projectDirectory = Path.GetDirectoryName(testProject);
+			                                                // This is so that the global dotnet is used instead of the one that comes with NUKE
+			                                                var dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
+			                                                var snapshotIndex = i;
 
-                    }
-                }
-            });
+			                                                string xUnitOutputDirectory = OutputDirectory / $"test_{snapshotIndex:00}.testresults";
+
+			                                                DotCoverCover(c => c
+			                                                                   .SetTargetExecutable(dotnetPath)
+			                                                                   .SetTargetWorkingDirectory(projectDirectory)
+			                                                                   .SetTargetArguments($"xunit -nobuild -xml {xUnitOutputDirectory.DoubleQuoteIfNeeded()}")
+			                                                                   .SetFilters("+:CoberturaConverter.Core")
+			                                                                   .SetAttributeFilters("System.CodeDom.Compiler.GeneratedCodeAttribute")
+			                                                                   .SetOutputFile(OutputDirectory / $"coverage{snapshotIndex:00}.snapshot"));
+		                                                }
+
+		                                                var snapshots = testProjects.Select((t, i) => OutputDirectory / $"coverage{i:00}.snapshot")
+		                                                                            .Select(p => p.ToString())
+		                                                                            .Aggregate((c, n) => c + ";" + n);
+
+		                                                DotCoverMerge(c => c
+		                                                                   .SetSource(snapshots)
+		                                                                   .SetOutputFile(OutputDirectory / "coverage.snapshot"));
+
+		                                                DotCoverReport(c => c
+		                                                                    .SetSource(OutputDirectory / "coverage.snapshot")
+		                                                                    .SetOutputFile(OutputDirectory / "coverage.html")
+		                                                                    .SetReportType(DotCoverReportType.Html));
+	                                                });
 
 
     /// <summary>
@@ -399,6 +481,7 @@ public partial class Build : NukeBuild
 
 
     protected override void OnBuildFinished () {
+	    if ( InvokedTargets.Contains(Setup) ) return;
         Logger.Info("Version Information");
         Logger.Info("   Overall Version #:  {0}", _gitProcessor.Version);
         Logger.Info("   SemVer Version #:  {0}", _gitProcessor.SemVersion);

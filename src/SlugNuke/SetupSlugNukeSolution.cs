@@ -109,6 +109,8 @@ namespace SlugNuke
 					updateProjectAdd = true;
 					nukeConfProject = new NukeConf.Project() {Name = project.Name};
 					nukeConfProject.Framework = project.Framework;
+					nukeConfProject.IsTestProject = project.IsTestProject;
+
 					if ( project.IsTestProject )
 						nukeConfProject.Deploy = CustomNukeDeployMethod.None;
 					else
