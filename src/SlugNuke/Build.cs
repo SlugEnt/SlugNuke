@@ -22,6 +22,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Xml.XPath;
+using Nuke.Common.Tools.MSBuild;
 using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
 using static Nuke.Common.Tools.DotCover.DotCoverTasks;
@@ -154,7 +155,7 @@ public partial class Build : NukeBuild {
 		                     Logger.Normal("Build Assemnbly Dir:       " + BuildAssemblyDirectory);
 		                     Logger.Normal("Build Project Dir:         " + BuildProjectDirectory);
 		                     Logger.Normal("NugetPackageConfigFile:    " + ToolPathResolver.NuGetPackagesConfigFile);
-		                     Logger.Normal("Executing Assembly Dir:    " + ToolPathResolver.ExecutingAssemblyDirectory);
+		                     //Logger.Normal("Executing Assembly Dir:    " + ToolPathResolver. .ExecutingAssemblyDirectory);
 		                     Logger.Normal("Nuget Assets Config File:  " + ToolPathResolver.NuGetAssetsConfigFile);
 		                     Logger.Normal();
 	                     });
@@ -189,7 +190,7 @@ public partial class Build : NukeBuild {
 		                        Logger.Normal("Configuration: " + Configuration.ToString());
 		                        Logger.Normal("Solution = " + Solution.Name);
 		                        Logger.Normal("GitVer.Inform = " + _gitProcessor.GitVersion.InformationalVersion);
-
+								
 
 		                        DotNetBuild(s => s.SetProjectFile(Solution)
 		                                          .SetConfiguration(Configuration)
@@ -319,8 +320,14 @@ public partial class Build : NukeBuild {
 
 	Target CodeCoverage => _ => _
 	        .Description("Reports on Code Coverage Results")
+			// Prevent errors from stopping the publish process.
+	        .After(Publish)
+	        .After(PublishProd)
+
 	         .DependsOn(Test)
 	         .Executes(() => {
+		        if ( !CustomNukeSolutionConfig.UseCodeCoverage ) return;
+
 	             foreach ( NukeConf.Project nukeConfProject in CustomNukeSolutionConfig.Projects ) {
 	                 if ( nukeConfProject.IsTestProject ) {
 	                     string fullName = TestsDirectory / nukeConfProject.Name / nukeConfProject.Name + ".csproj";

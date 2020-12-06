@@ -8,14 +8,16 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-
+using Nuke.Common.Tools.DotNet;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
+using static Nuke.Common.Tools.DotNet.DotNetTasks;
 using NukeConf;
 using static Nuke.Common.IO.FileSystemTasks;
 using System.Xml.XPath;
 using Nuke.Common.CI;
+using Nuke.Common.ProjectModel;
 using Console = Colorful.Console;
 
 namespace SlugNuke
@@ -111,8 +113,12 @@ namespace SlugNuke
 					nukeConfProject.Framework = project.Framework;
 					nukeConfProject.IsTestProject = project.IsTestProject;
 
-					if ( project.IsTestProject )
-						nukeConfProject.Deploy = CustomNukeDeployMethod.None;
+					if ( project.IsTestProject ) {
+						nukeConfProject.Deploy = CustomNukeDeployMethod.None; 
+						
+						// Also add the Required Nuget Coverage package
+						CoverletInstall(project);
+					}
 					else
 						nukeConfProject.Deploy = CustomNukeDeployMethod.Copy;
 
@@ -125,6 +131,10 @@ namespace SlugNuke
 						nukeConfProject.Framework = project.Framework;
 						updates = true;
 					}
+
+					if (nukeConfProject.IsTestProject)                      
+						// Also add the Required Nuget Coverage package
+						CoverletInstall(project);
 
 					if ( nukeConfProject.Deploy == CustomNukeDeployMethod.Copy ) hasCopyDeployMethod = true;
 				}
@@ -178,8 +188,6 @@ namespace SlugNuke
 			string expectedNukeLine = Path.GetFileName(ExpectedSolutionPath) + "/" + Path.GetFileName(solutionFile);
 			
 			// Read Nuke File if it exists.
-			//string slnFileName = Path.GetFileName(solutionFile);
-			//AbsolutePath fullPath = ExpectedSolutionPath / slnFileName;
 			AbsolutePath nukeFile = RootDirectory / ".nuke";
 			if ( FileExists(nukeFile) ) {
 				string [] lines = File.ReadAllLines(nukeFile.ToString(), Encoding.ASCII);
@@ -333,7 +341,7 @@ namespace SlugNuke
 		/// Determines the Project's targeted framework.
 		/// </summary>
 		/// <param name="project"></param>
-	private void DetermineFramework (VisualStudioProject project) {
+		private void DetermineFramework (VisualStudioProject project) {
 			// Determine csproj path
 			AbsolutePath csprojPath = project.OriginalPath / project.Namecsproj;
 
@@ -342,6 +350,19 @@ namespace SlugNuke
 			string value = doc.XPathSelectElement("//PropertyGroup/TargetFramework").Value;
 			ControlFlow.Assert(value != string.Empty,"Unable to locate a FrameWork value from the csproj file.  This is a required property. Project: " + project.Namecsproj);
 			project.Framework = value;
+		}
+
+
+		/// <summary>
+		/// Installs Coverlet into Test Projects
+		/// </summary>
+		/// <param name="vsProject"></param>
+		/// <returns></returns>
+		private bool CoverletInstall (VisualStudioProject vsProject) {
+			// Determine csproj path
+			AbsolutePath csprojPath = vsProject.NewPath;
+			IReadOnlyCollection<Output> results = DotNet("add package coverlet.msbuild", csprojPath);
+			return true;
 		}
 
 

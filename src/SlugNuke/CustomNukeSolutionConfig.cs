@@ -32,6 +32,13 @@ namespace NukeConf {
 	/// Contains information about the solution and projects that SlugNuke needs in order to build and publish the projects.
 	/// </summary>
 	public class CustomNukeSolutionConfig {
+
+		/// <summary>
+		/// If true Code Coverage reports will be run.
+		/// </summary>
+		public bool UseCodeCoverage { get; set; } = true;
+
+
 		/// <summary>
 		/// The threshold required or else Code Coverage will throw an error.
 		/// </summary>
