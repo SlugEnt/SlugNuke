@@ -3,14 +3,16 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
-    <AssemblyVersion>1.0.0.225</AssemblyVersion>
+    <AssemblyVersion>1.0.1</AssemblyVersion>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
       <PackageReference Include="Colorful.Console" Version="1.2.11" />
       <PackageReference Include="GitVersion.CommandLine" Version="5.5.1">
         </PackageReference>
-      <PackageReference Include="Nuke.Common" Version="5.1.0-alpha0002" />
+      <PackageReference Include="Nuke.Common" Version="5.0.1" />
   </ItemGroup>
 
   <ItemGroup>

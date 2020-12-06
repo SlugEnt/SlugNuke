@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -7,14 +8,17 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-
+using Nuke.Common.Tools.DotNet;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
+using static Nuke.Common.Tools.DotNet.DotNetTasks;
 using NukeConf;
 using static Nuke.Common.IO.FileSystemTasks;
 using System.Xml.XPath;
-
+using Nuke.Common.CI;
+using Nuke.Common.ProjectModel;
+using Console = Colorful.Console;
 
 namespace SlugNuke
 {
@@ -84,6 +88,7 @@ namespace SlugNuke
 		/// </summary>
 		/// <returns></returns>
 		private async Task<bool> ValidateNukeSolutionBuild () {
+			bool updates = false;
 			AbsolutePath nsbFile = RootDirectory / "nukeSolutionBuild.conf";
 
 			CustomNukeSolutionConfig customNukeSolutionConfig;
@@ -92,11 +97,12 @@ namespace SlugNuke
 			}
 			else {
 				customNukeSolutionConfig = new CustomNukeSolutionConfig();
+				customNukeSolutionConfig.DeployToVersionedFolder = true;
 			}
+			
 
-
-			bool updates = false;
 			bool updateProjectAdd = false;
+			bool hasCopyDeployMethod = false;
 
 			// Now go thru the projects and update the config
 			foreach (VisualStudioProject project in Projects) {
@@ -105,10 +111,16 @@ namespace SlugNuke
 					updateProjectAdd = true;
 					nukeConfProject = new NukeConf.Project() {Name = project.Name};
 					nukeConfProject.Framework = project.Framework;
-					if ( project.IsTestProject )
-						nukeConfProject.Deploy = CustomNukeConfigEnum.None;
+					nukeConfProject.IsTestProject = project.IsTestProject;
+
+					if ( project.IsTestProject ) {
+						nukeConfProject.Deploy = CustomNukeDeployMethod.None; 
+						
+						// Also add the Required Nuget Coverage package
+						CoverletInstall(project);
+					}
 					else
-						nukeConfProject.Deploy = CustomNukeConfigEnum.Copy;
+						nukeConfProject.Deploy = CustomNukeDeployMethod.Copy;
 
 					updates = true;
 					customNukeSolutionConfig.Projects.Add(nukeConfProject);
@@ -119,17 +131,49 @@ namespace SlugNuke
 						nukeConfProject.Framework = project.Framework;
 						updates = true;
 					}
+
+					if (nukeConfProject.IsTestProject)                      
+						// Also add the Required Nuget Coverage package
+						CoverletInstall(project);
+
+					if ( nukeConfProject.Deploy == CustomNukeDeployMethod.Copy ) hasCopyDeployMethod = true;
 				}
-				
 			}
 
-			if ( updates ) {
-				string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());
-				File.WriteAllText(nsbFile,json);
-				if ( updateProjectAdd ) { Logger.Warn("The file: {0} was updated.  One ore more projects were added.  Ensure they have the correct Deploy setting.", nsbFile); }
+
+			// Ensure Deploy Roots have values if at least one of the projects has a deploy method of Copy
+			if ( hasCopyDeployMethod ) {
+				for ( int i = 0; i < 2; i++ ) {
+					string name;
+					Configuration config;
+
+					if ( i == 0 ) {
+						name = "Production";
+						config = Configuration.Release;
+					}
+					else {
+						name = "Test";
+						config = Configuration.Debug;
+					}
+
+					if ( !customNukeSolutionConfig.IsRootFolderSpecified(config) ) {
+						Console.WriteLine("Enter the root deployment folder for {0} [{1}]", Color.Yellow, name, config);
+						string answer = Console.ReadLine();
+						if ( i == 0 )
+							customNukeSolutionConfig.DeployProdRoot = answer;
+						else
+							customNukeSolutionConfig.DeployTestRoot = answer;
+						updates = true;
+					}
+				}
 			}
+
+
+			// We now always write the config file at the end of Setup.  This ensure we get any new properties.
+			string json = JsonSerializer.Serialize<CustomNukeSolutionConfig>(customNukeSolutionConfig, CustomNukeSolutionConfig.SerializerOptions());
+			File.WriteAllText(nsbFile,json);
+			if ( updateProjectAdd ) { Logger.Warn("The file: {0} was updated.  One ore more projects were added.  Ensure they have the correct Deploy setting.", nsbFile); }
 			
-
 			return true;
 		}
 
@@ -144,8 +188,6 @@ namespace SlugNuke
 			string expectedNukeLine = Path.GetFileName(ExpectedSolutionPath) + "/" + Path.GetFileName(solutionFile);
 			
 			// Read Nuke File if it exists.
-			//string slnFileName = Path.GetFileName(solutionFile);
-			//AbsolutePath fullPath = ExpectedSolutionPath / slnFileName;
 			AbsolutePath nukeFile = RootDirectory / ".nuke";
 			if ( FileExists(nukeFile) ) {
 				string [] lines = File.ReadAllLines(nukeFile.ToString(), Encoding.ASCII);
@@ -299,7 +341,7 @@ namespace SlugNuke
 		/// Determines the Project's targeted framework.
 		/// </summary>
 		/// <param name="project"></param>
-	private void DetermineFramework (VisualStudioProject project) {
+		private void DetermineFramework (VisualStudioProject project) {
 			// Determine csproj path
 			AbsolutePath csprojPath = project.OriginalPath / project.Namecsproj;
 
@@ -308,6 +350,19 @@ namespace SlugNuke
 			string value = doc.XPathSelectElement("//PropertyGroup/TargetFramework").Value;
 			ControlFlow.Assert(value != string.Empty,"Unable to locate a FrameWork value from the csproj file.  This is a required property. Project: " + project.Namecsproj);
 			project.Framework = value;
+		}
+
+
+		/// <summary>
+		/// Installs Coverlet into Test Projects
+		/// </summary>
+		/// <param name="vsProject"></param>
+		/// <returns></returns>
+		private bool CoverletInstall (VisualStudioProject vsProject) {
+			// Determine csproj path
+			AbsolutePath csprojPath = vsProject.NewPath;
+			IReadOnlyCollection<Output> results = DotNet("add package coverlet.msbuild", csprojPath);
+			return true;
 		}
 
 

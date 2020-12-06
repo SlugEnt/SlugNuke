@@ -19,9 +19,6 @@ namespace SlugNuke
 	///  Processes all Git Related stuff 
 	/// </summary>
 	class GitProcessor {
-		const string VERSIONS_FILENAME = "versions.txt";
-		const int VERSION_HISTORY_TO_KEEP = 4;
-		const int VERSION_HISTORY_LIMIT = 7;
 		const string COMMIT_MARKER = "|^|";
 		const string GIT_COMMAND_MARKER = "|";
 
@@ -31,9 +28,11 @@ namespace SlugNuke
 		/// <summary>
 		/// The Branch that the repository is currently on
 		/// </summary>
-		public string CurrentBranch { get; set; }
-		public string Version { get; set; }
-		public string SemVersion { get; set; }
+		public string CurrentBranch { get; private set; }
+		public string Version { get; private set; }
+		public string SemVersion { get; private set; }
+		public string SemVersionNugetCompatible { get; private set; }
+		public string InformationalVersion { get; private set; }
 		public string GitTagName { get; private set; }
 		public string GitTagDesc { get; private set; }
 
@@ -121,6 +120,8 @@ namespace SlugNuke
 			catch (Exception e)
 			{
 				PrintGitHistory();
+				if ( e.Message.Contains("Sequence contains no elements") ) 
+					throw new InvalidOperationException("Do you have a branch checked out?  Original error: " + e.Message);
 				throw e;
 			}
 
@@ -152,71 +153,23 @@ namespace SlugNuke
 
 
 		/// <summary>
-		/// Used to push the app into a Development commit, which means it is tagged with a SemVer tag, such as 2.5.6-alpha1001
+		/// Determines if the the local "Current" branch is up to date with the remote branch.  If not it will throw an error.
 		/// </summary>
-		public void CommitSemVersionChanges () {
-			try {
-				GitTagName = "Ver" + SemVersion;
-				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + SemVersion;
-
-				string gitArgs = "add .";
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
-
-				gitArgs = string.Format("commit -m \"{0} {1}", COMMIT_MARKER, GitTagDesc);
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
-
-				gitArgs = string.Format("tag -a {0} -m \"{1}\"", GitTagName, GitTagDesc);
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
-
-				gitArgs = "push --set-upstream origin " + CurrentBranch;
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
-
-				gitArgs = "push --tags origin";
-				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
-			}
-			catch ( Exception e ) {
-				PrintGitHistory();
-				throw e;
-			}
-		}
-
-
-
-		/// <summary>
-		/// This is the initial Main Version Commit Transition logic.
-		/// </summary>
-		public void MainVersionCheckout () {
-			string gitArgs;
-			string commitErrStart = "MainVersionCheckout:::  Git Command Failed:  git ";
-
-			List<Output> gitOutput;
+		/// <param name="branchName"></param>
+		/// <returns></returns>
+		public bool IsBranchUpToDate (string branchName = null) {
+			if ( branchName == null ) branchName = CurrentBranch;
 
 			try {
-				// First we need to checkout master and merge it.
-				if ( !IsCurrentBranchMainBranch() ) {
-					gitArgs = "checkout " + MainBranchName;
-					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				string gitArgs = "remote update";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("IsBranchUpToDate::: Git Command failed:  git " + gitArgs);
 
-					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}   |  {1}\"",  CurrentBranch, GitVersion.MajorMinorPatch);
-					if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
-				}
-
-				// Read Version info from file.
-				ReadVersionsFile(false);
-
-				GitTagName = "Ver" + Version;
-				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + Version;
-
-				// See if the Tag exists already, if so we will get errors later, better to stop now.
-				gitArgs = "describe --tags --abbrev=0";
-				ControlFlow.Assert(ExecuteGit(gitArgs, out gitOutput) == true, commitErrStart + gitArgs);
-				string latestVer = "";
-				
-				if ( gitOutput.Count > 0 && gitOutput [0].Text == GitTagName ) {
-					WasVersionPreviouslyCommitted = true;
-					Logger.Warn("The Git Tag: {0} was previously committed.  We are assuming this is one of 2 things:  1) Just a rebuild of the current branch with no changes.  2) A run to correct a prior error in a later stage.  Certain code sections will be skipped.", GitTagName);
-				}
-				
+				gitArgs = "status uno";
+				if ( !ExecuteGit_NoOutput(gitArgs) )
+					throw new ApplicationException("IsBranchUpToDate::: Your local branch: [" +
+					                               branchName +
+					                               "] is not up to date with the remote one.  You will need to manually correct and then try again.");
+				return true;
 			}
 			catch (Exception e)
 			{
@@ -228,6 +181,85 @@ namespace SlugNuke
 
 
 		/// <summary>
+		/// Used to push the app into a Development commit, which means it is tagged with a SemVer tag, such as 2.5.6-alpha1001
+		/// </summary>
+		public void CommitSemVersionChanges () {
+			try {
+				if ( WasVersionPreviouslyCommitted ) return;
+				string commitErrStart = "CommitSemVersionChanges:::  Git Command Failed:  git ";
+				GitTagName = "Ver" + SemVersion;
+				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + SemVersion;
+				string gitArgs = "";
+
+				gitArgs = string.Format("tag -a {0} -m \"{1}\"", GitTagName, GitTagDesc);
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
+
+				gitArgs = "push --set-upstream origin " + CurrentBranch;
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
+
+				gitArgs = "push --tags origin";
+				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException(commitErrStart + gitArgs);
+			}
+			catch ( Exception e ) {
+				PrintGitHistory();
+				throw e;
+			}
+		}
+
+
+		/// <summary>
+		/// Gets the next version and the GitTags
+		/// </summary>
+		/// <param name="isMainBranchBuild"></param>
+		public void GetNextVersionAndTags (bool isMainBranchBuild) {
+			string gitArgs;
+			string commitErrStart = "GetNextVersionAndTags:::  Git Command Failed:  git ";
+
+			List<Output> gitOutput;
+
+			try {
+				GetNextVersion(isMainBranchBuild);
+				// Override GitTagName if main branch
+				if ( isMainBranchBuild ) {
+					GitTagName = "Ver" + Version;
+
+					// Lets validate that local master and remote master are up to date.  If not then no need to proceed with anything else - we will have problems later
+					IsBranchUpToDate(MainBranchName);
+				}
+				else
+					GitTagName = "Ver" + SemVersion;
+
+
+				//GitTagName = "Ver" + Version;
+				GitTagDesc = "Deployed Version:  " + PrettyPrintBranchName(CurrentBranch) + "  |  " + Version;
+
+				// See if the Tag exists already, if so we will get errors later, better to stop now.  
+				gitArgs = "describe --tags --abbrev=0";
+
+				if ( !ExecuteGit(gitArgs, out gitOutput) ) {
+					if ( gitOutput.Count > 0 ) {
+						if ( gitOutput [0].Text.Contains("fatal: No names found") )
+							return;
+						throw new ApplicationException(commitErrStart + gitArgs);
+					}
+				}
+
+				if (gitOutput.Count > 0 && gitOutput[0].Text == GitTagName)
+				{
+					WasVersionPreviouslyCommitted = true;
+					Logger.Warn("The Git Tag: {0} was previously committed.  We are assuming this is one of 2 things:  1) Just a rebuild of the current branch with no changes.  2) A run to correct a prior error in a later stage.  Certain code sections will be skipped.", GitTagName);
+				}
+			}
+			catch ( Exception e ) {
+				PrintGitHistory();
+				throw e;
+			}
+		}
+
+
+
+
+		/// <summary>
 		/// This is the Main Branch Commit stage
 		/// </summary>
 		public void CommitMainVersionChanges()
@@ -235,11 +267,20 @@ namespace SlugNuke
 			string gitArgs;
 			List<Output> gitOutput;
 
-			// This is not an update, it is a redo of previous run that may have errored or its a clean run, but no changes have been committed.  So we skip this.
+			// This is not an update, it is a redo of a previous run that may have errored or its a clean run, but no changes have been committed.  So we skip this.
 			if ( WasVersionPreviouslyCommitted ) return;
 
 			try {
-				WriteVersionsFile();
+				// Checkout main and merge the current branch in
+				if (!IsCurrentBranchMainBranch())
+				{
+					gitArgs = "checkout " + MainBranchName;
+					if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
+
+					gitArgs = string.Format("merge {0} --no-ff --no-edit -m \"Merging Branch: {0}   |  {1}\"", CurrentBranch, GitVersion.MajorMinorPatch);
+					if (!ExecuteGit_NoOutput(gitArgs)) throw new ApplicationException("CommitMainVersionChanges:::  .Git Command failed:  git " + gitArgs);
+				}
+
 
 				gitArgs = "add .";
 				if ( !ExecuteGit_NoOutput(gitArgs) ) throw new ApplicationException("CommitVersionChanges:::  .Git Command failed:  git " + gitArgs);
@@ -267,8 +308,12 @@ namespace SlugNuke
 					if ( !ExecuteGit_NoOutput(gitArgs) ) bErrorIsExpected = true;
 
 					gitArgs = "branch -d " + CurrentBranch;
-					if ( !ExecuteGit_NoOutput(gitArgs) ) 
-							throw new ApplicationException("CommitVersionChanges:::   .Git Command failed:  git " + gitArgs);
+					if ( !ExecuteGit_NoOutput(gitArgs) && !bErrorIsExpected ) {
+						ControlFlow.AssertWarn(1 ==0,"Unable to delete the local branch [" + CurrentBranch +  "see Git Errors below.  Will continue to process since this is not a fatal error.  You may need to perform branch cleanup manually."); 
+						PrintGitHistory();
+						// We will probably fail the next error too...
+						bErrorIsExpected = true;
+					}
 
 					gitArgs = "push origin --delete " + CurrentBranch;
 					if ( !ExecuteGit_NoOutput(gitArgs) ) 
@@ -335,58 +380,57 @@ namespace SlugNuke
 		}
 
 
+		public void GetNextVersion (bool isMainBranchBuild) {
+			Version = GitVersion.MajorMinorPatch;
+			SemVersion = GitVersion.SemVer;
+
+			/* GitVersion Is not working correctly.
+			InformationalVersion = GitVersion.InformationalVersion;
+			SemVersionNugetCompatible = GitVersion.NuGetVersionV2;
+
+			return;
+			*/
+
+			if ( isMainBranchBuild ) {
+				SemVersion = Version;
+				SemVersionNugetCompatible = Version;
+				InformationalVersion = Version + "+" + GitVersion.Sha.Substring(0, 7);
+				return;
+			}
+
+
+			string label = GitVersion.PreReleaseLabel;
+			int commitNumber = GetBranchCommitCount();
+			ControlFlow.Assert(commitNumber > 0, "There are no commits on branch [" + CurrentBranch + "].  Since this is a non-main branch there is nothing to do.");
+
+			//int commitNumber = Int32.Parse(GitVersion.CommitsSinceVersionSource);
+			//commitNumber++;
+			SemVersion = Version + "-" + label + "." + commitNumber;
+			
+			// Calculate Nuget Version
+			string zeros = "";
+			if ( commitNumber > 99 ) zeros = "0";
+			else if ( commitNumber > 9 )
+				zeros = "00";
+			else  zeros = "000";
+			SemVersionNugetCompatible = Version + "-" + label +  zeros + commitNumber;
+
+			InformationalVersion = SemVersion + "+" + GitVersion.Sha.Substring(0, 7);
+		}
+
+
 		/// <summary>
-		/// Processes the Versions file, Updating it to the latest from the current Git Branch if they are not the same.
+		/// Returns the number of commits on the current branch.
 		/// </summary>
-		/// <param name="updateVersionFile">If true (Should only be set during Test Builds, not Production) it will also update the versions.txt file</param>
 		/// <returns></returns>
-		public string ReadVersionsFile (bool updateVersionFile) {
-			string fileName = RootDirectory / VERSIONS_FILENAME;
-			
-
-			if ( File.Exists(fileName) ) {
-				string[] versionLines = File.ReadAllLines(fileName);
-				_versionList = new List<string>(versionLines);
-
-				// If file is too big, then reduce to minimum size
-				if ( _versionList.Count > VERSION_HISTORY_LIMIT ) {
-					int toRemove = _versionList.Count - VERSION_HISTORY_TO_KEEP;
-					_versionList.RemoveRange(0, toRemove);
-				}
+		public int GetBranchCommitCount () {
+			string gitArgs = string.Format("reflog show --no-abbrev {0}", CurrentBranch);
+			if (ExecuteGit(gitArgs, out List<Output> gitOutput)) {
+				return gitOutput.Count - 1;
 			}
-
-			// Get the last record, which is the latest Version
-			string latestFileVersion = "0.0.0";
-			if (_versionList.Count != 0)
-				latestFileVersion = _versionList.Last();
-
-			
-			// Now use GitVersion to get latest version as GitVersion sees it.
-			string gvLatestVersion = GitVersion.MajorMinorPatch;
-			string gvLatestSemVer = GitVersion.SemVer;
-			
-
-			// Write latest version to file if not the same as the current last entry.
-			string gvFull = gvLatestVersion + "|" + gvLatestSemVer;
-			if ( gvFull != latestFileVersion ) {
-				_versionList.Add(gvFull);
-			}
-
-			Version = gvLatestVersion;
-			SemVersion = gvLatestSemVer;
-
-			if (updateVersionFile) WriteVersionsFile();
-
-			return _versionList.Last();
+			ControlFlow.Assert(1 == 0, "Unable to determine how many commits are on current branch.");
+			return 0;
 		}
-
-
-
-		private void WriteVersionsFile () {
-			string fileName = RootDirectory / VERSIONS_FILENAME;
-			File.WriteAllLines(fileName, _versionList.ToArray());
-		}
-
 
 
 		/// <summary>
@@ -433,22 +477,22 @@ namespace SlugNuke
 		/// </summary>
 		private void IdentifyMainBranch () {
 			try { 
-			string gitArgs = "branch";
-			if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("IdentifyMainBranch:::   .Git Command failed:  git " + gitArgs);
+				string gitArgs = "branch";
+				if (!ExecuteGit(gitArgs, out List<Output> output)) throw new ApplicationException("IdentifyMainBranch:::   .Git Command failed:  git " + gitArgs);
 
-			char [] skipChars = new [] {' ', '*'};
+				char [] skipChars = new [] {' ', '*'};
 
-			bool found = false;
-			foreach ( Output branch in output ) {
-				string branchName = branch.Text.TrimStart(skipChars).TrimEnd();
-				if ( IsMainBranch(branchName))  {
-					if ( found )
-						throw new ApplicationException(
-							"Appears to be a main and master branch in the repository.  This is not allowed.  Please cleanup the repo so only master or only main exists.");
-					found = true;
-					MainBranchName = branchName;
+				bool found = false;
+				foreach ( Output branch in output ) {
+					string branchName = branch.Text.TrimStart(skipChars).TrimEnd();
+					if ( IsMainBranch(branchName))  {
+						if ( found )
+							throw new ApplicationException(
+								"Appears to be a main and master branch in the repository.  This is not allowed.  Please cleanup the repo so only master or only main exists.");
+						found = true;
+						MainBranchName = branchName;
+					}
 				}
-			}
 			}
 			catch (Exception e)
 			{
@@ -477,7 +521,6 @@ namespace SlugNuke
 
 			return newName;
 		}
-
 
 
 		/// <summary>
