@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
+using Nuke.Common;
 using Nuke.Common.ProjectModel;
+using Nuke.Common.Tooling;
 
 
-	public partial class Build 
+public partial class Build 
 	{
 
 		/// <summary>
@@ -17,5 +20,8 @@ using Nuke.Common.ProjectModel;
 			string fullName = SourceDirectory / confProject.Name / confProject.Name + ".csproj";
 			return Solution.GetProject(fullName);
 		}
-	}
+
+
+	
+}
 

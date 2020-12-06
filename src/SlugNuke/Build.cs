@@ -15,6 +15,7 @@ using NukeConf;
 using SlugNuke;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -33,19 +34,14 @@ using Project = Nuke.Common.ProjectModel.Project;
 
 [CheckBuildProjectConfigurations]
 [ShutdownDotNetAfterServerBuild]
-public partial class Build : NukeBuild
-{
+public partial class Build : NukeBuild {
 	/// Support plugins are available for:
 	///   - JetBrains ReSharper        https://nuke.build/resharper
 	///   - JetBrains Rider            https://nuke.build/rider
 	///   - Microsoft VisualStudio     https://nuke.build/visualstudio
 	///   - Microsoft VSCode           https://nuke.build/vscode
 
-	public static int Main () {
-
-        
-        return Execute<Build>(x => x.Compile);
-	}
+	public static int Main () { return Execute<Build>(x => x.Compile); }
 
 
 
@@ -53,422 +49,305 @@ public partial class Build : NukeBuild
 	Configuration Configuration;
 
 #pragma warning disable CS0649,IDE0044
-    [Parameter("Nuget API Key used to deploy to Nuget compatible Repo.")] string NugetApiKey;
-    [Parameter("URL of the Nuget compatible Repository that packages should be pushed to.")] string NugetRepoUrl;
-    [Parameter("When Publishing, it skips the deployment of any project with a deploy method of Nuget")] bool SkipNuget;
-    [Solution] readonly Solution Solution;
+	[Parameter("Nuget API Key used to deploy to Nuget compatible Repo.")]
+	string NugetApiKey;
+
+	[Parameter("URL of the Nuget compatible Repository that packages should be pushed to.")]
+	string NugetRepoUrl;
+
+	[Parameter("When Publishing, it skips the deployment of any project with a deploy method of Nuget")]
+	bool SkipNuget;
+
+	[Solution] readonly Solution Solution;
 #pragma warning restore CS0649
 
 
 #pragma warning disable IDE0051
 
-    AbsolutePath SourceDirectory => RootDirectory / "src";
-    AbsolutePath TestsDirectory => RootDirectory / "tests";
-    AbsolutePath OutputDirectory => RootDirectory / "artifacts";
-    
-    CustomNukeSolutionConfig CustomNukeSolutionConfig;
+	AbsolutePath SourceDirectory => RootDirectory / "src";
+	AbsolutePath TestsDirectory => RootDirectory / "tests";
+	AbsolutePath OutputDirectory => RootDirectory / "artifacts";
 
-    GitProcessor _gitProcessor;
+	CustomNukeSolutionConfig CustomNukeSolutionConfig;
 
-    bool IsProductionBuild = false;
+	GitProcessor _gitProcessor;
 
-    List<PublishResult> PublishResults = new List<PublishResult>();
- 
+	bool IsProductionBuild = false;
 
-    /// <summary>
-    /// Pre-Processing that must occur for majority of the targets to work.
-    /// </summary>
-    private void PreProcessing () {
-	    if ( Configuration == null ) {
-		    if (InvokedTargets.Contains(PublishProd)) 
-			    Configuration = Configuration.Release; 
-            else
+	List<PublishResult> PublishResults = new List<PublishResult>();
+
+
+	/// <summary>
+	/// Pre-Processing that must occur for majority of the targets to work.
+	/// </summary>
+	private void PreProcessing () {
+		if ( Configuration == null ) {
+			if ( InvokedTargets.Contains(PublishProd) )
+				Configuration = Configuration.Release;
+			else
 				Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
-	    }
-
-	    
-        Utility.ValidateGetVersionEnvVariable();
-
-	    // Loads the Solution specific configuration information for building.
-	    string json = File.ReadAllText(RootDirectory / "NukeSolutionBuild.Conf");
-	    CustomNukeSolutionConfig = JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, CustomNukeSolutionConfig.SerializerOptions());
-	    ControlFlow.Assert(CustomNukeSolutionConfig.CheckRootFolders(),"The DeployProdRoot or DeployTestRoot in the NukeSolutionBuild.Conf do not contain valid entries.  Run SlugNuke --Target Setup to fix.");
-
-	    // Setup the GitProcessor
-	    _gitProcessor = new GitProcessor(RootDirectory);
+		}
 
 
-	    if (_gitProcessor.GitVersion == null) Logger.Error("GitVersion not Loaded");
+		Utility.ValidateGetVersionEnvVariable();
 
-	    // Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
-	    _gitProcessor.GetCurrentBranch();
-	    _gitProcessor.IsUncommittedChanges();
-	    _gitProcessor.IsBranchUpToDate();
+		// Loads the Solution specific configuration information for building.
+		string json = File.ReadAllText(RootDirectory / "NukeSolutionBuild.Conf");
+		CustomNukeSolutionConfig = JsonSerializer.Deserialize<CustomNukeSolutionConfig>(json, CustomNukeSolutionConfig.SerializerOptions());
+		ControlFlow.Assert(CustomNukeSolutionConfig.CheckRootFolders(),
+		                   "The DeployProdRoot or DeployTestRoot in the NukeSolutionBuild.Conf do not contain valid entries.  Run SlugNuke --Target Setup to fix.");
 
-	    if ( _gitProcessor.IsCurrentBranchMainBranch() && InvokedTargets.Contains(Publish) ) {
-		    string msg =
-			    @"The current branch is the main branch, yet you are running a Test Publish command.  This is unsupported as it will cause version issues in Git.  " +
-			    "Either create a branch off master to put the changes into (this is probably what you want) OR change Target command to PublishProd.";
-		    ControlFlow.Assert(1 ==0, msg);
-	    }
-    }
+		// Setup the GitProcessor
+		_gitProcessor = new GitProcessor(RootDirectory);
 
 
+		if ( _gitProcessor.GitVersion == null ) Logger.Error("GitVersion not Loaded");
 
-    /// <summary>
-    /// Logic to initialize a project so it is prepared to be built by Nuke.  This only needs to be done once.
-    /// Re-arranges projects, creates necessary files, etc.
-    /// </summary>
-    Target Setup => _ => _
-        .Description("Called when first placing a solution under SlugNuke build control.  Also, call anytime you change a project's framework or add projects.")
-	    .Executes(async () => {
-        SetupSlugNukeSolution initializationLogic = new SetupSlugNukeSolution()
-	    {
+		// Get current branch and ensure there are no uncommitted updates.  These methods will throw if anything is out of sorts.
+		_gitProcessor.GetCurrentBranch();
+		_gitProcessor.IsUncommittedChanges();
+		_gitProcessor.IsBranchUpToDate();
 
-		    RootDirectory = RootDirectory,
-		    SourceDirectory = SourceDirectory,
-		    TestsDirectory = TestsDirectory,
-		    OutputDirectory = OutputDirectory,
-            ExpectedSolutionPath = SourceDirectory
-	    };
-            
-	    await initializationLogic.Initialize();
-        });
+		if ( _gitProcessor.IsCurrentBranchMainBranch() && InvokedTargets.Contains(Publish) ) {
+			string msg =
+				@"The current branch is the main branch, yet you are running a Test Publish command.  This is unsupported as it will cause version issues in Git.  " +
+				"Either create a branch off master to put the changes into (this is probably what you want) OR change Target command to PublishProd.";
+			ControlFlow.Assert(1 == 0, msg);
+		}
+	}
 
 
 
-    /// <summary>
-    /// Provides basic information about the project.
-    /// </summary>
-    Target Info => _ => _
-        .Description("Provides information about the current solution")
-        .Executes(() =>
-	    {
-		    Logger.Normal("Root =         " + RootDirectory.ToString());
-            Logger.Normal("Source =       " + SourceDirectory.ToString());
-		    Logger.Normal("Tests:         " + TestsDirectory.ToString());
-            Logger.Normal("Output:        " + OutputDirectory);
-            Logger.Normal("Solution:      " + Solution.Path);
+	/// <summary>
+	/// Logic to initialize a project so it is prepared to be built by Nuke.  This only needs to be done once.
+	/// Re-arranges projects, creates necessary files, etc.
+	/// </summary>
+	Target Setup => _ => _
+	                     .Description(
+		                     "Called when first placing a solution under SlugNuke build control.  Also, call anytime you change a project's framework or add projects.")
+	                     .Executes(async () => {
+		                     SetupSlugNukeSolution initializationLogic = new SetupSlugNukeSolution()
+		                     {
+			                     RootDirectory = RootDirectory,
+			                     SourceDirectory = SourceDirectory,
+			                     TestsDirectory = TestsDirectory,
+			                     OutputDirectory = OutputDirectory,
+			                     ExpectedSolutionPath = SourceDirectory
+		                     };
 
-            Logger.Normal("Build Assemnbly Dir:       " + BuildAssemblyDirectory);
-            Logger.Normal("Build Project Dir:         " + BuildProjectDirectory);
-            Logger.Normal("NugetPackageConfigFile:    " + ToolPathResolver.NuGetPackagesConfigFile);
-            Logger.Normal("Executing Assembly Dir:    " + ToolPathResolver.ExecutingAssemblyDirectory);
-            Logger.Normal("Nuget Assets Config File:  " + ToolPathResolver.NuGetAssetsConfigFile);
-            Logger.Normal();
-	    });
-
+		                     await initializationLogic.Initialize();
+	                     });
 
 
-    Target Clean => _ => _
-        .Before(Restore)
-        .Executes(() =>
-        {
-            SourceDirectory.GlobDirectories("**/bin", "**/obj").ForEach(DeleteDirectory);
-            TestsDirectory.GlobDirectories("**/bin", "**/obj").ForEach(DeleteDirectory);
-            EnsureCleanDirectory(OutputDirectory);
-        });
+
+	/// <summary>
+	/// Provides basic information about the project.
+	/// </summary>
+	Target Info => _ => _.Description("Provides information about the current solution")
+	                     .Executes(() => {
+		                     Logger.Normal("Root =         " + RootDirectory.ToString());
+		                     Logger.Normal("Source =       " + SourceDirectory.ToString());
+		                     Logger.Normal("Tests:         " + TestsDirectory.ToString());
+		                     Logger.Normal("Output:        " + OutputDirectory);
+		                     Logger.Normal("Solution:      " + Solution.Path);
+
+		                     Logger.Normal("Build Assemnbly Dir:       " + BuildAssemblyDirectory);
+		                     Logger.Normal("Build Project Dir:         " + BuildProjectDirectory);
+		                     Logger.Normal("NugetPackageConfigFile:    " + ToolPathResolver.NuGetPackagesConfigFile);
+		                     Logger.Normal("Executing Assembly Dir:    " + ToolPathResolver.ExecutingAssemblyDirectory);
+		                     Logger.Normal("Nuget Assets Config File:  " + ToolPathResolver.NuGetAssetsConfigFile);
+		                     Logger.Normal();
+	                     });
 
 
-    Target Restore => _ => _
-        .DependsOn(Clean)
-        .Executes(() =>
-        {
-            DotNetRestore(s => s
-                .SetProjectFile(Solution));
-        });
+
+	Target Clean => _ => _.Before(Restore)
+	                      .Executes(() => {
+		                      SourceDirectory.GlobDirectories("**/bin", "**/obj").ForEach(DeleteDirectory);
+		                      TestsDirectory.GlobDirectories("**/bin", "**/obj").ForEach(DeleteDirectory);
+		                      EnsureCleanDirectory(OutputDirectory);
+	                      });
 
 
-    Target Compile => _ => _
-        .DependsOn(Restore)
-        .Executes(() =>
-        {
-	        string assemblyVer = _gitProcessor.GitVersion.AssemblySemVer;
-	        string fileVer = _gitProcessor.GitVersion.AssemblySemFileVer;
-	        
-            // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
-            // This ensure we do not build the package with -alpha suffix.
-            // For non master build (Publish) we will carry out this step AFTER the Packing.
-            _gitProcessor.GetNextVersionAndTags(IsProductionBuild);
-
-            string infoVer = _gitProcessor.SemVersion;
-
-            Logger.Normal("Source = " + SourceDirectory.ToString());
-	        Logger.Normal("Tests:  " + TestsDirectory.ToString());
-	        Logger.Normal("Configuration: " + Configuration.ToString());
-            Logger.Normal("Solution = " + Solution.Name);
-            Logger.Normal("GitVer.Inform = " + _gitProcessor.GitVersion.InformationalVersion);
-
-            
-            DotNetBuild(s => s
-                             .SetProjectFile(Solution)
-                .SetConfiguration(Configuration)
-                .SetAssemblyVersion(assemblyVer)
-                .SetFileVersion(fileVer)
-                .SetInformationalVersion(infoVer)
-                .SetVerbosity(DotNetVerbosity.Minimal)
-                .EnableNoRestore());
-        });
+	Target Restore => _ => _.DependsOn(Clean).Executes(() => { DotNetRestore(s => s.SetProjectFile(Solution)); });
 
 
-    /// <summary>
-    /// Commits changes to Git after Compile and Test
-    /// </summary>
-    Target GitCommit => _ => _
-                              .After(Test)
-                              .After(Compile)
-                              .Executes(() => {
-	                              if ( IsProductionBuild ) _gitProcessor.CommitMainVersionChanges();
-                                  else
-	                              {
-		                              // Update the Versions file with the latest
-		                              //_gitProcessor.GetNextVersion();
-		                              _gitProcessor.CommitSemVersionChanges();
-	                              }
-                              });
+	Target Compile => _ => _.DependsOn(Restore)
+	                        .Executes(() => {
+		                        string assemblyVer = _gitProcessor.GitVersion.AssemblySemVer;
+		                        string fileVer = _gitProcessor.GitVersion.AssemblySemFileVer;
+
+		                        // If this is a master build (PublishMaster) we commit all code (now that we know compile and tests are good) and then proceed with the packaging
+		                        // This ensure we do not build the package with -alpha suffix.
+		                        // For non master build (Publish) we will carry out this step AFTER the Packing.
+		                        _gitProcessor.GetNextVersionAndTags(IsProductionBuild);
+
+		                        string infoVer = _gitProcessor.SemVersion;
+
+		                        Logger.Normal("Source = " + SourceDirectory.ToString());
+		                        Logger.Normal("Tests:  " + TestsDirectory.ToString());
+		                        Logger.Normal("Configuration: " + Configuration.ToString());
+		                        Logger.Normal("Solution = " + Solution.Name);
+		                        Logger.Normal("GitVer.Inform = " + _gitProcessor.GitVersion.InformationalVersion);
 
 
-    /// <summary>
-    /// Prep for sending to a Nuget style repo
-    /// </summary>
-    Target Pack => _ => _
-        .DependsOn(Compile)
-		.DependsOn(Test)
-        .DependsOn (GitCommit)
-        
-
-	    .Executes(() =>
-	    {
-		    OutputDirectory.GlobFiles("*.nupkg", "*symbols.nupkg").ForEach(DeleteFile);
+		                        DotNetBuild(s => s.SetProjectFile(Solution)
+		                                          .SetConfiguration(Configuration)
+		                                          .SetAssemblyVersion(assemblyVer)
+		                                          .SetFileVersion(fileVer)
+		                                          .SetInformationalVersion(infoVer)
+		                                          .SetVerbosity(DotNetVerbosity.Minimal)
+		                                          .EnableNoRestore());
+	                        });
 
 
-            // Build the necessary packages 
-            foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
-			    if ( project.Deploy == CustomNukeDeployMethod.Nuget ) {
-				    string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
-				    IReadOnlyCollection<Output> output = DotNetPack(_ => _.SetProject(Solution.GetProject(fullName))
-				                     .SetOutputDirectory(OutputDirectory)
-				                     .SetIncludeSymbols(true)
-				                     .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
-				                     .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
-				                     .SetInformationalVersion(_gitProcessor.InformationalVersion)
-				                     .SetVersion(_gitProcessor.SemVersionNugetCompatible));
-				    foreach ( Output item in output ) {
-					    if ( item.Text.Contains("Successfully created package") ) {
-						    string file = item.Text.Substring(item.Text.IndexOf("'") + 1);
-						    PublishResults.Add(new PublishResult(project.Name, project.Deploy.ToString(),file));
-					    }
-				    }
-			    }
-
-            }
-	    });
+	/// <summary>
+	/// Commits changes to Git after Compile and Test
+	/// </summary>
+	Target GitCommit => _ => _.After(Test)
+	                          .After(Compile)
+	                          .Executes(() => {
+		                          if ( IsProductionBuild )
+			                          _gitProcessor.CommitMainVersionChanges();
+		                          else {
+			                          // Update the Versions file with the latest
+			                          _gitProcessor.CommitSemVersionChanges();
+		                          }
+	                          });
 
 
-    /// <summary>
-    /// Deploy to its final staging location.   If the version already existed we skip it.
-    /// </summary>
-    Target Publish => _ => _
-        .Description("Used for publishing a non-master branch.  The version of the app and in Git will be sometype of 'alpha' version, ie, 1.3.6-beta.5")
-       .DependsOn(Pack)
-       .Requires(() => NugetApiKey)
-       .Requires(() => NugetRepoUrl)
-       .Executes(() =>
-       {
-	       if ( !SkipNuget ) {
-		       GlobFiles(OutputDirectory, "*.nupkg")
-			       .NotEmpty()
-			       .Where(x => !x.EndsWith("symbols.nupkg"))
-			       .ForEach(x => {
-				       IReadOnlyCollection<Output> result =
-					       DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
-				       if ( result.Count > 0 ) {
-					       // Look for skipped message.
-					       foreach ( Output outputLine in result ) {
-						       if ( outputLine.Text.Contains("already exists at feed") ) {
-							       string errMsgStart =
-								       "The push to Nuget repository failed because this package and version already exist in the Nuget Repo.  ";
-							       if ( _gitProcessor.WasVersionPreviouslyCommitted )
-								       Logger.Warn(errMsgStart + 
-									       "This is an expected result based on Versioning history.");
-							       else {
-                                       Logger.Warn(errMsgStart + 
-                                                   "From the Git Version Tag history, this was not an expected result.  Please check the Nuget Repo, and Git to determine if this was expected");
-							       }
-						       }
-                               else PublishResults.Add(new PublishResult("","Nuget",x));
-					       }
-				       }
-			       });
-	       }
+	/// <summary>
+	/// Prep for sending to a Nuget style repo
+	/// </summary>
+	Target Pack => _ => _.DependsOn(Compile)
+	                     .DependsOn(Test)
+	                     .DependsOn(GitCommit)
+	                     .Executes(() => {
+		                     OutputDirectory.GlobFiles("*.nupkg", "*symbols.nupkg").ForEach(DeleteFile);
 
 
-	       // Now process Copy Outputs.
-           PublishCopiedFolders();
+		                     // Build the necessary packages 
+		                     foreach ( NukeConf.Project project in CustomNukeSolutionConfig.Projects ) {
+			                     if ( project.Deploy == CustomNukeDeployMethod.Nuget ) {
+				                     string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
+				                     IReadOnlyCollection<Output> output = DotNetPack(_ => _.SetProject(Solution.GetProject(fullName))
+				                                                                           .SetOutputDirectory(OutputDirectory)
+				                                                                           .SetIncludeSymbols(true)
+				                                                                           .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
+				                                                                           .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
+				                                                                           .SetInformationalVersion(_gitProcessor.InformationalVersion)
+				                                                                           .SetVersion(_gitProcessor.SemVersionNugetCompatible));
+				                     foreach ( Output item in output ) {
+					                     if ( item.Text.Contains("Successfully created package") ) {
+						                     string file = item.Text.Substring(item.Text.IndexOf("'") + 1);
+						                     PublishResults.Add(new PublishResult(project.Name, project.Deploy.ToString(), file));
+					                     }
+				                     }
+			                     }
 
-           Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
-       });
-
-
-    
-
-    /// <summary>
-    /// Deploy to its final staging location.   If the version already existed we skip it.
-    /// </summary>
-    private Target PublishProd => _ => _
-        .Description("Used when you want to move a non-master branch to master.  It will change version to a Major.Minor.Fix version")
-        .DependsOn(Pack)
-       .Requires(() => NugetApiKey)
-       .Requires(() => NugetRepoUrl)
-       .Executes(() =>
-       {
-	       if (SkippedTargets.Count > 0) { ControlFlow.Assert(1 == 0, "You cannot use the --skip flag with PublishProd.  PublishProd Process requires the previous steps to have completed."); }
-           if ( !SkipNuget ) {
-		       GlobFiles(OutputDirectory, "*.nupkg")
-			       .NotEmpty()
-			       .Where(x => !x.EndsWith("symbols.nupkg"))
-			       .ForEach(x => {
-				       IReadOnlyCollection<Output> result =
-					       DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
-				       if ( result.Count > 0 ) {
-					       // Look for skipped message.
-					       foreach ( Output outputLine in result ) {
-						       if ( outputLine.Text.Contains("already exists at feed") ) {
-							       string msg = @"A nuget package  <" + Path.GetFileName(x) + ">  with this name and version already exists. " +
-							                    "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
-							                    "Will carry on as though this push was successfull.  " +
-							                    "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
-							       Logger.Warn(msg);
-						       }
-					       }
-				       }
-			       });
-	       }
-
-			// Now process Copy Outputs.
-			PublishCopiedFolders();
-
-	       Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
-       });
+		                     }
+	                     });
 
 
-    Target Test => _ => _
-        .Description("Runs all unit tests.")
-        .DependsOn(Compile)
-        .Executes(() => {
-	        foreach (NukeConf.Project nukeConfProject in CustomNukeSolutionConfig.Projects)
-	        {
-		        if ( nukeConfProject.IsTestProject ) {
-			        string fullName = TestsDirectory / nukeConfProject.Name / nukeConfProject.Name + ".csproj";
-			        Project project = Solution.GetProject(fullName);
-			        ControlFlow.Assert(project != null,
-			                           "Unable to find the project named: " +
-			                           nukeConfProject.Name +
-			                           " in the Nuke Solution.  May need to re-run SlugNuke Setup");
-			        AbsolutePath CoveragePath = OutputDirectory / ("Coverage_" + project.Name);
-			        DotNetTest(t => t.SetProjectFile(project.Directory)
-			                         .SetConfiguration(Configuration)
-			                         .EnableNoBuild()
-			                         .EnableNoRestore()
-			                         .SetProcessLogOutput(true)
-			                         .SetProcessArgumentConfigurator(arguments => arguments.Add("/p:CollectCoverage={0}", true)
-			                                                                               .Add("/p:CoverletOutput={0}/", CoveragePath)
-			                                                                               .Add("/p:CoverletOutputFormat={0}", "cobertura")
-			                                                                               .Add("/p:Threshold={0}", 0)
-			                                                                               .Add("/p:SkipAutoProps={0}",true)
-			                                                                               .Add("/p:ExcludeByAttribute={0}","\"Obsolete%2cGeneratedCodeAttribute%2cCompilerGeneratedAttribute\"")
-			                                                                               .Add("/p:UseSourceLink={0}", true))
-			                            .SetResultsDirectory(OutputDirectory / "Tests"));
-
-			        ReportGenerator(r => r.SetTargetDirectory(CoveragePath)
-			                              .SetProcessWorkingDirectory(CoveragePath)
-			                              .SetReportTypes(ReportTypes.HtmlInline, ReportTypes.Badges)
-			                              .SetReports("coverage.cobertura.xml")
-			                              .SetProcessToolPath("reportgenerator"));
-		        }
-	        }
-
-		});
-
-	                        /*
-	                        /// <summary>
-	                        /// Run the unit tests
-	                        /// </summary>
-	                        Target Test => _ => _
-	                                .Description("Runs all unit tests.")
-	                                .DependsOn(Compile)
-	                                .Executes(() =>
-	                                {
-	                                    foreach ( Project project in Solution.AllProjects ) {
-	                                        if ( project.Path.ToString().StartsWith(TestsDirectory) ) {
-	                                            string projectTestDirectory = Path.GetDirectoryName(project.Path.ToString());
-	                                            string dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
-	            
-	                                            // We allow all tests to run, instead of failing at first failure.
-	                                            IProcess dotnetTest = ProcessTasks.StartProcess(dotnetPath, "test " + projectTestDirectory, logOutput: true);
-	                                            dotnetTest.AssertWaitForExit();
-	                                            IReadOnlyCollection<Output> output = dotnetTest.Output;
-	            
-	                                            // Write the last line of output in green or red depending on outcome
-	                                            string testResults = "";
-	                                            if ( output.Count > 0 ) { testResults = output.Last().Text; }
-	            
-	                                            if ( dotnetTest.ExitCode != 0 ) {
-	                                                Logger.Warn(testResults);
-	                                                ControlFlow.Assert(dotnetTest.ExitCode == 0, "Unit Tests Failed");
-	                                            }
-	                                            else 
-	                                                Logger.Success(testResults);
-	            
-	                                        }
-	                                    }
-	                                });
-	            
-	                        */
-
-	                        Target Coverage => _ => _
-	                                                .DependsOn(Compile)
-	                                                .Executes(() =>
-	                                                {
-		                                                var testProjects = GlobFiles(RootDirectory / "test", "*.csproj").ToList();
-		                                                for (var i = 0; i < testProjects.Count; i++)
-		                                                {
-			                                                var testProject = testProjects[i];
-			                                                var projectDirectory = Path.GetDirectoryName(testProject);
-			                                                // This is so that the global dotnet is used instead of the one that comes with NUKE
-			                                                var dotnetPath = ToolPathResolver.GetPathExecutable("dotnet");
-			                                                var snapshotIndex = i;
-
-			                                                string xUnitOutputDirectory = OutputDirectory / $"test_{snapshotIndex:00}.testresults";
-
-			                                                DotCoverCover(c => c
-			                                                                   .SetTargetExecutable(dotnetPath)
-			                                                                   .SetTargetWorkingDirectory(projectDirectory)
-			                                                                   .SetTargetArguments($"xunit -nobuild -xml {xUnitOutputDirectory.DoubleQuoteIfNeeded()}")
-			                                                                   .SetFilters("+:CoberturaConverter.Core")
-			                                                                   .SetAttributeFilters("System.CodeDom.Compiler.GeneratedCodeAttribute")
-			                                                                   .SetOutputFile(OutputDirectory / $"coverage{snapshotIndex:00}.snapshot"));
-		                                                }
-
-		                                                var snapshots = testProjects.Select((t, i) => OutputDirectory / $"coverage{i:00}.snapshot")
-		                                                                            .Select(p => p.ToString())
-		                                                                            .Aggregate((c, n) => c + ";" + n);
-
-		                                                DotCoverMerge(c => c
-		                                                                   .SetSource(snapshots)
-		                                                                   .SetOutputFile(OutputDirectory / "coverage.snapshot"));
-
-		                                                DotCoverReport(c => c
-		                                                                    .SetSource(OutputDirectory / "coverage.snapshot")
-		                                                                    .SetOutputFile(OutputDirectory / "coverage.html")
-		                                                                    .SetReportType(DotCoverReportType.Html));
-	                                                });
+	/// <summary>
+	/// Deploy to its final staging location.   If the version already existed we skip it.
+	/// </summary>
+	Target Publish => _ => _
+	                       .Description(
+		                       "Used for publishing a non-master branch.  The version of the app and in Git will be sometype of 'alpha' version, ie, 1.3.6-beta.5")
+	                       .DependsOn(Pack)
+	                       .Requires(() => NugetApiKey)
+	                       .Requires(() => NugetRepoUrl)
+	                       .Executes(() => { ExecutePublish(); });
 
 
-    /// <summary>
-    /// We need to see if this is a publishmaster target.  If so, set the flag.
-    /// </summary>
-    protected override void OnBuildInitialized()
+
+
+	/// <summary>
+	/// Deploy to its final staging location.   If the version already existed we skip it.
+	/// </summary>
+	Target PublishProd => _ => _.Description("Used when you want to move a non-master branch to master.  It will change version to a Major.Minor.Fix version")
+	                            .DependsOn(Pack)
+	                            .Requires(() => NugetApiKey)
+	                            .Requires(() => NugetRepoUrl)
+	                            .Executes(() => {
+		                            if ( SkippedTargets.Count > 0 ) {
+			                            ControlFlow.Assert(
+				                            1 == 0,
+				                            "You cannot use the --skip flag with PublishProd.  PublishProd Process requires the previous steps to have completed.");
+		                            }
+
+		                            ExecutePublish();
+	                            });
+
+
+
+
+	Target Test => _ => _.Description("Runs all unit tests.")
+	                     .DependsOn(Compile)
+	                     .Triggers(CodeCoverage)
+	                     .Executes(() => {
+		                     foreach ( NukeConf.Project nukeConfProject in CustomNukeSolutionConfig.Projects ) {
+			                     if ( nukeConfProject.IsTestProject ) {
+				                     string fullName = TestsDirectory / nukeConfProject.Name / nukeConfProject.Name + ".csproj";
+				                     Project project = Solution.GetProject(fullName);
+				                     ControlFlow.Assert(project != null,
+				                                        "Unable to find the project named: " +
+				                                        nukeConfProject.Name +
+				                                        " in the Nuke Solution.  May need to re-run SlugNuke Setup");
+				                     AbsolutePath CoveragePath = OutputDirectory / ("Coverage_" + project.Name);
+				                     DotNetTest(t => t.SetProjectFile(project.Directory)
+				                                      .SetConfiguration(Configuration)
+				                                      .EnableNoBuild()
+				                                      .EnableNoRestore()
+				                                      .SetProcessLogOutput(true)
+				                                      .SetProcessArgumentConfigurator(arguments => arguments.Add("/p:CollectCoverage={0}", true)
+					                                                                      .Add("/p:CoverletOutput={0}/", CoveragePath)
+					                                                                      .Add("/p:CoverletOutputFormat={0}", "cobertura")
+					                                                                      .Add("/p:Threshold={0}", CustomNukeSolutionConfig.CodeCoverageThreshold)
+					                                                                      .Add("/p:SkipAutoProps={0}", true)
+					                                                                      .Add("/p:ExcludeByAttribute={0}",
+					                                                                           "\"Obsolete%2cGeneratedCodeAttribute%2cCompilerGeneratedAttribute\"")
+					                                                                      .Add("/p:UseSourceLink={0}", true))
+				                                      .SetResultsDirectory(OutputDirectory / "Tests"));
+
+			                     }
+							 }
+
+	                     });
+
+
+	Target CodeCoverage => _ => _
+	        .Description("Reports on Code Coverage Results")
+	         .DependsOn(Test)
+	         .Executes(() => {
+	             foreach ( NukeConf.Project nukeConfProject in CustomNukeSolutionConfig.Projects ) {
+	                 if ( nukeConfProject.IsTestProject ) {
+	                     string fullName = TestsDirectory / nukeConfProject.Name / nukeConfProject.Name + ".csproj";
+	                     Project project = Solution.GetProject(fullName);
+	                     ControlFlow.Assert(project != null,
+	                                        "Unable to find the project named: " +
+	                                        nukeConfProject.Name +
+	                                        " in the Nuke Solution.  May need to re-run SlugNuke Setup");
+	                     AbsolutePath CoveragePath = OutputDirectory / ("Coverage_" + project.Name);
+
+	                     ReportGenerator(r => r.SetTargetDirectory(CoveragePath)
+	                                           .SetProcessWorkingDirectory(CoveragePath)
+	                                           .SetReportTypes(ReportTypes.HtmlInline, ReportTypes.Badges)
+	                                           .SetReports("coverage.cobertura.xml")
+	                                           .SetProcessToolPath("reportgenerator"));
+
+	                     AbsolutePath coverageFile = CoveragePath / "index.html";
+	                     Process.Start(@"cmd.exe ", @"/c " + coverageFile);
+	                 }
+				 }
+	         });
+
+
+/// <summary>
+	/// We need to see if this is a publishmaster target.  If so, set the flag.
+	/// </summary>
+	protected override void OnBuildInitialized()
     {
 	    base.OnBuildInitialized();
 
@@ -480,6 +359,9 @@ public partial class Build : NukeBuild
     }
 
 
+	/// <summary>
+	/// Runs after Build Completion
+	/// </summary>
     protected override void OnBuildFinished () {
 	    if ( InvokedTargets.Contains(Setup) ) return;
         Logger.Info("Version Information");
@@ -553,6 +435,57 @@ public partial class Build : NukeBuild
             Logger.Success("Project:  {0}  Deployed to Copy Folder:  {1}", project.Name, deploy);
 
 	    }
+	    return true;
+    }
+
+
+
+	/// <summary>
+	/// Runs the Publish command for either Test or Prod.
+	/// </summary>
+	/// <returns></returns>
+    public bool ExecutePublish()
+    {
+	    if (SkippedTargets.Count > 0)
+	    {
+		    ControlFlow.Assert(
+			    1 == 0, "You cannot use the --skip flag with PublishProd.  PublishProd Process requires the previous steps to have completed.");
+	    }
+
+	    if (!SkipNuget)
+	    {
+		    GlobFiles(OutputDirectory, "*.nupkg")
+			    .NotEmpty()
+			    .Where(x => !x.EndsWith("symbols.nupkg"))
+			    .ForEach(x => {
+				    IReadOnlyCollection<Output> result =
+					    DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
+				    if (result.Count > 0)
+				    {
+					    // Look for skipped message.
+					    foreach (Output outputLine in result)
+					    {
+						    if (outputLine.Text.Contains("already exists at feed"))
+						    {
+							    string msg = @"A nuget package  <" +
+							                 Path.GetFileName(x) +
+							                 ">  with this name and version already exists. " +
+							                 "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
+							                 "Will carry on as though this push was successfull.  " +
+							                 "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
+							    Logger.Warn(msg);
+						    }
+						    else PublishResults.Add(new PublishResult("", "Nuget", x));
+						}
+				    }
+			    });
+
+		    // Now process Copy Outputs.
+		    PublishCopiedFolders();
+
+		    Logger.Success("Version: " + _gitProcessor.Version + " fully committed and deployed to target location.");
+		}
+
 	    return true;
     }
 

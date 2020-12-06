@@ -14,6 +14,7 @@ A customized (Opinionated) Nuke Build app that provides the following capabiliti
 - Any time you add a new project to the solution you need to re-run setup.
 - If you remove a project from a solution you need to manually remove it from the nukeSolutionBuild.conf file.
 - Use the [ExcludeFromCodeCoverage] attribute to exclude classes or methods from Code Coverage Results.
+- It is recommended to use Source Link for Libraries so that users can debug into them from their programs.  See SourceLink Below
 
 ## Setup
 The setup target will take an existing solution target and convert it to the proper format for this build process.  It will perform the following:
@@ -76,5 +77,42 @@ Feature/testA                   More Development
 
 
 
+## SourceLink
+Official Documentation is here:  [SourceLink](https://github.com/dotnet/sourcelink)
 
+You need to add the following section to those projects that you are pushing to nuget repositories.
+```
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+ 
+    <!-- Optional: Publish the repository URL in the built .nupkg (in the NuSpec <Repository> element) -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+ 
+    <!-- Optional: Embed source files that are not tracked by the source control manager in the PDB -->
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  
+    <!-- Optional: Build symbol package (.snupkg) to distribute the PDB containing Source Link -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Add PackageReference specific for your source control provider (see below) --> 
+  </ItemGroup>
+</Project>
+```
 
+You then need to add the following to the ItemGroup Section Depending on your repository:
+##### GitHub
+```
+<ItemGroup>
+  <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
+</ItemGroup>
+```
+
+##### BitBucket Local Repo
+```
+<ItemGroup>
+  <PackageReference Include="Microsoft.SourceLink.Bitbucket.Git" Version="1.0.0" PrivateAssets="All"/>
+</ItemGroup>
+```

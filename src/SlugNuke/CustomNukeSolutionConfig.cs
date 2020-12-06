@@ -33,6 +33,12 @@ namespace NukeConf {
 	/// </summary>
 	public class CustomNukeSolutionConfig {
 		/// <summary>
+		/// The threshold required or else Code Coverage will throw an error.
+		/// </summary>
+		public short CodeCoverageThreshold { get; set; } = 90;
+
+
+		/// <summary>
 		/// The root folder to deploy Production (Release) to
 		/// </summary>
 		public string DeployProdRoot { get; set; }
