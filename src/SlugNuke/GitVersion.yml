@@ -9,11 +9,11 @@ branches:
     increment: Minor
     regex: ^dev(elop)?(ment)?$
   feature:
-    tag: useBranchName
+    tag: beta.{BranchName}
     increment: Minor
     regex: ^feature?[/-]
   release:
-    tag: beta
+    tag: rc
     increment: Minor
     regex: ^release?[/-]
   hotfix:

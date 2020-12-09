@@ -2,7 +2,35 @@
   "profiles": {
     "SlugNuke": {
       "commandName": "Project",
-      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd "
+      "commandLineArgs": "--root c:\\a_dev\\slugent\\Locker --Target PublishProd"
+    },
+    "Setup": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target Setup"
+    },
+    "PublishProd": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd"
+    },
+    "PublishProd SkipNuget": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\practice\\NukeTestControl --Target PublishProd --SkipNuget "
+    },
+    "PublishTest SkipNuget": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestcontrol --Target Publish --SkipNuget "
+    },
+    "Test": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestcontrol --Target Test --SkipNuget "
+    },
+    "PublishTest": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestcontrol --Target Publish"
+    },
+    "CodeCoverage": {
+      "commandName": "Project",
+      "commandLineArgs": "--root c:\\a_dev\\Practice\\NukeTestcontrol --Target CodeCoverage"
     }
   }
 }
