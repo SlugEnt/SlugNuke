@@ -352,7 +352,7 @@ public partial class Build : NukeBuild {
 
 
 /// <summary>
-	/// We need to see if this is a publishmaster target.  If so, set the flag.
+	/// We need to see if this is a publishProd target.  If so, set the flag.
 	/// </summary>
 	protected override void OnBuildInitialized()
     {
@@ -465,27 +465,42 @@ public partial class Build : NukeBuild {
 			    .NotEmpty()
 			    .Where(x => !x.EndsWith("symbols.nupkg"))
 			    .ForEach(x => {
-				    IReadOnlyCollection<Output> result =
-					    DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
-				    if (result.Count > 0)
-				    {
-					    // Look for skipped message.
-					    foreach (Output outputLine in result)
-					    {
-						    if (outputLine.Text.Contains("already exists at feed"))
-						    {
-							    string msg = @"A nuget package  <" +
-							                 Path.GetFileName(x) +
-							                 ">  with this name and version already exists. " +
-							                 "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
-							                 "Will carry on as though this push was successfull.  " +
-							                 "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
-							    Logger.Warn(msg);
+				    IReadOnlyCollection<Output> nugetOutput = null;
+				    try {
+					    nugetOutput = DotNetNuGetPush(s => s.SetTargetPath(x).SetSource(NugetRepoUrl).SetApiKey(NugetApiKey).SetSkipDuplicate(true));
+					    if ( nugetOutput.Count > 0 ) {
+						    // Look for skipped message.
+						    foreach ( Output outputLine in nugetOutput ) {
+							    if ( outputLine.Text.Contains("already exists at feed") ) {
+								    string msg = @"A nuget package  <" +
+								                 Path.GetFileName(x) +
+								                 ">  with this name and version already exists. " +
+								                 "Assuming this is due to you re-running the publish after a prior error that occurred after the push to Nuget was successful.  " +
+								                 "Will carry on as though this push was successfull.  " +
+								                 "Otherwise, if this should have been a new update, then you will need to make another commit and re-publish";
+								    Logger.Warn(msg);
+							    }
+							    else
+								    PublishResults.Add(new PublishResult("", "Nuget", x));
 						    }
-						    else PublishResults.Add(new PublishResult("", "Nuget", x));
-						}
+					    }
+				    }
+				    catch ( ProcessException pe ) {
+					    if ( nugetOutput != null ) {
+						    if ( nugetOutput.Count > 0 ) {
+							    foreach ( Output line in nugetOutput ) {
+								    if ( line.Text.Contains("400 (Bad Request).") ) {
+										Logger.Warn("The nuget Push process threw an error.  If you are pushing to nuget.org then this is a service or some other authentication error.  If you are using a service other than Nuget this may be a service outage with the site or it might mean the version of the library you are pushing already exists.  You will need to perform a manual check to determine which it is.");
+										continue;
+								    }
+							    }
+						    }
+					    }
+
+					    throw pe;
 				    }
 			    });
+
 
 		    // Now process Copy Outputs.
 		    PublishCopiedFolders();
@@ -495,5 +510,4 @@ public partial class Build : NukeBuild {
 
 	    return true;
     }
-
 }
