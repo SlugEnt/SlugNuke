@@ -88,7 +88,6 @@ namespace SlugNuke
 		/// </summary>
 		/// <returns></returns>
 		private async Task<bool> ValidateNukeSolutionBuild () {
-			bool updates = false;
 			AbsolutePath nsbFile = RootDirectory / "nukeSolutionBuild.conf";
 
 			CustomNukeSolutionConfig customNukeSolutionConfig;
@@ -122,14 +121,12 @@ namespace SlugNuke
 					else
 						nukeConfProject.Deploy = CustomNukeDeployMethod.Copy;
 
-					updates = true;
 					customNukeSolutionConfig.Projects.Add(nukeConfProject);
 				}
 				else {
 					// Check for updated values:
 					if ( nukeConfProject.Framework != project.Framework ) {
 						nukeConfProject.Framework = project.Framework;
-						updates = true;
 					}
 
 					if (nukeConfProject.IsTestProject)                      
@@ -163,7 +160,6 @@ namespace SlugNuke
 							customNukeSolutionConfig.DeployProdRoot = answer;
 						else
 							customNukeSolutionConfig.DeployTestRoot = answer;
-						updates = true;
 					}
 				}
 			}
@@ -361,7 +357,7 @@ namespace SlugNuke
 		private bool CoverletInstall (VisualStudioProject vsProject) {
 			// Determine csproj path
 			AbsolutePath csprojPath = vsProject.NewPath;
-			IReadOnlyCollection<Output> results = DotNet("add package coverlet.msbuild", csprojPath);
+			DotNet("add package coverlet.msbuild", csprojPath);
 			return true;
 		}
 

@@ -68,7 +68,7 @@ namespace NukeConf {
 
 
 		/// <summary>
-		/// If true, the name of the project (Full Namespace name) will be used with every . in the name being a new subfolder.
+		/// If true, the name of the project (Full Namespace name) will be used with every period in the name being a new subfolder.
 		/// So:  MySpace.MyApp.SubApp would be deployed to a folder DeployRoot\Prod\MySpace\MyApp\SubApp\MySpace.MyApp.SubApp\Ver#.#.#
 		/// </summary>
 		public bool DeployToAssemblyFolders { get; set; } = false;
