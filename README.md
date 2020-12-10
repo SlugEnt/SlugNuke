@@ -15,7 +15,7 @@ A customized (Opinionated) Nuke Build app that provides the following capabiliti
 - If you remove a project from a solution you need to manually remove it from the nukeSolutionBuild.conf file.
 - Use the [ExcludeFromCodeCoverage] attribute to exclude classes or methods from Code Coverage Results.
 - It is recommended to use Source Link for Libraries so that users can debug into them from their programs.  See SourceLink Below
-- You must add the package coverlet.collector to all Test projects in order to use code coverage
+- You must add the package coverlet.collector to all Test projects in order to use code coverage (This is now done automatically during setup if setup recognizes it as a Test project.)
 
 ## Setup
 The setup target will take an existing solution target and convert it to the proper format for this build process.  It will perform the following:
