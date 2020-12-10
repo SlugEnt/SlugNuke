@@ -486,18 +486,10 @@ public partial class Build : NukeBuild {
 					    }
 				    }
 				    catch ( ProcessException pe ) {
-					    if ( nugetOutput != null ) {
-						    if ( nugetOutput.Count > 0 ) {
-							    foreach ( Output line in nugetOutput ) {
-								    if ( line.Text.Contains("400 (Bad Request).") ) {
-										Logger.Warn("The nuget Push process threw an error.  If you are pushing to nuget.org then this is a service or some other authentication error.  If you are using a service other than Nuget this may be a service outage with the site or it might mean the version of the library you are pushing already exists.  You will need to perform a manual check to determine which it is.");
-										continue;
-								    }
-							    }
-						    }
-					    }
-
-					    throw pe;
+						if (! NugetRepoUrl.Contains( "nuget.org")) 
+							Logger.Warn("The nuget Push process threw an error.  Since you are using a service other than Nuget this may be a service outage with the site or it might mean the version of the library you are pushing already exists.  You will need to perform a manual check to determine which it is.");
+						else
+							throw pe;
 				    }
 			    });
 
