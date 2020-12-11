@@ -7,19 +7,23 @@ branches:
   develop:
     tag: alpha
     increment: Minor
-    regex: ^dev(elop)?(ment)?$
+    regex: ^dev(elop)?[/-]
+    mode: ContinuousDeployment
   feature:
-    tag: beta.{BranchName}
+    tag: alpha
     increment: Minor
     regex: ^feature?[/-]
+    mode: ContinuousDeployment
   release:
     tag: rc
     increment: Minor
     regex: ^release?[/-]
+    mode: ContinuousDeployment
   hotfix:
-    tag: fix
+    tag: alpha
     regex: ^hotfix(es)?[/-]|^fix[/-]
     increment: Patch
+    mode: ContinuousDeployment
   master: 
     tag: ''
     regex: ^master$|^main$
