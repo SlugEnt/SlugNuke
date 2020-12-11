@@ -233,6 +233,7 @@ public partial class Build : NukeBuild {
 				                     string fullName = SourceDirectory / project.Name / project.Name + ".csproj";
 				                     IReadOnlyCollection<Output> output = DotNetPack(_ => _.SetProject(Solution.GetProject(fullName))
 				                                                                           .SetOutputDirectory(OutputDirectory)
+				                                                                           .SetConfiguration(Configuration)
 				                                                                           .SetIncludeSymbols(true)
 				                                                                           .SetAssemblyVersion(_gitProcessor.GitVersion.AssemblySemVer)
 				                                                                           .SetFileVersion(_gitProcessor.GitVersion.AssemblySemFileVer)
